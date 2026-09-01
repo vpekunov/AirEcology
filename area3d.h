@@ -183,7 +183,6 @@ int ErrorMessage(const char * fmt, ...)
 #define ErrorMessage printf
 #endif
 
-#if !defined(__IMITATE__) && !defined(__EPX__)
 void AbortServer(int Code)
 {
 #ifdef __MPI__
@@ -195,7 +194,6 @@ void AbortServer(int Code)
  exit(Code);
 #endif
 }
-#endif
 
 void * SafeMalloc(size_t size)
 {

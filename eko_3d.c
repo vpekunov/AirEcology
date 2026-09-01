@@ -1,11 +1,16 @@
+#pragma plan vectorized
+
 /* При работе с транслятором MPI => Planning C в Windows рекомендуется: */
-/* mpi2reent.exe <num_procs> -followdefines -D_WIN32 eko_3d.c <outfile.cpp> */
+/* mpi2reent.exe <num_procs> -followdefines -D_WIN32 -D_MSC_VER eko_3d.c <outfile.cpp> */
 /* Reenterable <outfile.cpp> <translated.cpp> */
 /* Далее компилировать <translated.cpp> */
 /* При работе с транслятором MPI => Planning C в UNIX/LINUX рекомендуется: */
 /* mpi2reent.exe <num_procs> -followdefines -D__UNIX__ eko_3d.c <outfile.cpp> */
 /* Reenterable <outfile.cpp> <translated.cpp> */
 /* Далее компилировать <translated.cpp> */
+
+/* Преобразование в C++ без MPI под Linux: Reenterable.exe -followdefines -nosourcelines -D__UNIX__ -D__OPENMP__ -D__MVS__ eko_3d.c reent1.cpp */
+/* Преобразование в C++ без MPI под Windows: Reenterable.exe -followdefines -nosourcelines -D_MSC_VER -D_WIN32 -D__OPENMP__ -D__MVS__ eko_3d.c reent1.cpp */
 
 /* (C) 1997-2015 V.V.Pekunov */
 /* Программа моделирования (3D модель) с турбулентностью */
@@ -74,11 +79,11 @@
 /* For Microsoft Visual Studio */
 #define _CRT_SECURE_NO_WARNINGS
 
+#include "memoization.h"
+
 /* Интерфейс распараллеливания */
-/*#define __IMITATE__    */  /* Устанавливается при работе с имитатором     */
-/*#define __EPX__        */  /* Устанавливается при работе с Embedded Parix */
-#define __MPI__          /* Устанавливается при работе с MPI            */
-#define __OPENMP__       /* Устанавливается при работе с OpenMP   */
+// #define __MPI__          /* Устанавливается при работе с MPI            */
+// #define __OPENMP__       /* Устанавливается при работе с OpenMP   */
 /*#define __ROUTER__     */  /* Устанавливается при работе с Router+        */
 /*#define __ROUTER_100__ */  /* Устанавливается при работе с Router MVS-100 */
 
@@ -104,7 +109,7 @@ int OMP_KineticChunk = 50;
 #define MVSOutputBase "eko_3d."
 #endif
 
-#if defined(__IMITATE__) || defined(__MPI__) || defined(__EPX__) || defined(__ROUTER__) || defined(__ROUTER_100__)
+#if defined(__MPI__) || defined(__ROUTER__) || defined(__ROUTER_100__)
 #define __PARALLEL__
 #endif
 
@@ -149,28 +154,16 @@ int OMP_KineticChunk = 50;
 #include <conio.h>
 #endif
 
-#ifdef __EPX__
-
-#include <sys/root.h>
-#include <sys/sem.h>
-#include <sys/sys_rpc.h>
-
-#elif defined(__IMITATE__)
-
-#include "root.h"
-#include "select.h"
-#include "link.h"
-
-#elif defined(__MPI__)
+#if defined(__MPI__)
 
 #ifdef __OPENMP__
 
 #include <omp.h>
-#include "mpi.h"
+#include <mpi.h>
 
 #else
 
-#include "mpi.h"
+#include <mpi.h>
 
 #endif
 
@@ -198,12 +191,35 @@ const char * _intScanf = "%lu";
 
 const char * _doubleScanf = "%lf";
 
-#include "cfgfile.h"
+#include "CFGFILE.H"
 #include "area3d.h"
-#include "kinetic.h"
+#include "KINETIC.H"
+
+KineticContext * Contexts;
+KineticGlobal KGlobal;
+int KinetChunkSize = 120*32; // 3840
+
+int NSubst;
+int NASubst;
+int NReact;
+
+int SetSteadyKinetics = 0; /* !!! */
+int InitOpenMPIters = 3; /* !!! */
+
+#ifndef __PARALLEL__
+TraceTypeHost * Traces = NULL;
+int NKinets = 0;
+
+double KinetTime = 0.0;
+#endif
+
 #include "specific.h"
 
-#ifdef __MPI__
+#ifdef __OPENMP__
+  typedef double TIME_STRUCT;
+#define FTIME(Arg) *Arg=omp_get_wtime()
+#define DIFFTIME(BeginTime,EndTime) (EndTime-BeginTime)
+#elif defined(__MPI__)
   typedef double TIME_STRUCT;
 #define FTIME(Arg) *Arg=MPI_Wtime()
 #define DIFFTIME(BeginTime,EndTime) (EndTime-BeginTime)
@@ -242,11 +258,7 @@ double Alpha; /* Параметр для регуляризации по Булееву */
 int    UseGear = 0;
 int    MinGap  = 1;
 
-#define MaxKYBlockItems 4
-
 int    UseEnhancedOpenMP = 1;
-
-int    UseKYBal = 0;
 
 double EndTime = 0.0;
 
@@ -329,20 +341,9 @@ MPI_Group SlavesGroup;
 
 int SlaveID = 0;
 
-#if defined (__IMITATE__) || defined(__EPX__)
-LinkCB_t *  MasterLink = NULL;
-LinkCB_t ** SlaveLinks = NULL;
-LinkCB_t ** InterLinks = NULL;
-LinkCB_t *  PrevLink   = NULL;
-LinkCB_t *  NextLink   = NULL;
-
-Option_t    MasterOption = NULL;
-Option_t *  Options      = NULL;
-#else
 typedef unsigned char byte;
 #define SlaveToProcID(i) ((i)+1)
 #define ProcIDToSlave(i) ((i)-1)
-#endif
 
 #ifdef __DEBUG__
 
@@ -543,7 +544,7 @@ void ROUTER_100_RECV(int ID, byte * Buf, int Length)
 }
 #endif
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
 
 #if !((defined(__UNIX__) || !defined(__MVS__)) && !defined(WIN32))
 #define MemMultiplier 100
@@ -640,9 +641,7 @@ void SHMEM_RM(int Handle)
 
 void SendMaster(byte * Buf, long Length)
 {
-#if defined(__IMITATE__) || defined(__EPX__)
- SendLink(MasterLink, Buf, Length);
-#elif defined(__ROUTER_100__)
+#if defined(__ROUTER_100__)
  ROUTER_100_SEND(0,Buf,Length);
 #elif defined(__ROUTER__)
  RouterSend(0, Buf, Length);
@@ -662,9 +661,7 @@ void SendMasterXXXTag(byte * Buf, long Length)
 
 void RecvMaster(byte * Buf, long Length)
 {
-#if defined(__IMITATE__) || defined(__EPX__)
- RecvLink(MasterLink, Buf, Length);
-#elif defined(__ROUTER_100__)
+#if defined(__ROUTER_100__)
  ROUTER_100_RECV(0,Buf,Length);
 #elif defined (__ROUTER__)
  RouterIRecv(0, Buf, Length);
@@ -724,9 +721,7 @@ void Wait(REQUEST * Request)
 
 void SendSlave(int slave, byte * Buf, long Length)
 {
-#if defined(__IMITATE__) || defined(__EPX__)
- SendLink(SlaveLinks[slave], Buf, Length);
-#elif defined(__ROUTER_100__)
+#if defined(__ROUTER_100__)
  ROUTER_100_SEND(SlaveToProcID(slave),Buf,Length);
 #elif defined(__ROUTER__)
  RouterSend(SlaveToProcID(slave), Buf, Length);
@@ -737,9 +732,7 @@ void SendSlave(int slave, byte * Buf, long Length)
 
 void RecvSlave(int slave, byte * Buf, long Length)
 {
-#if defined(__IMITATE__) || defined(__EPX__)
- RecvLink(SlaveLinks[slave], Buf, Length);
-#elif defined(__ROUTER_100__)
+#if defined(__ROUTER_100__)
  ROUTER_100_RECV(SlaveToProcID(slave),Buf,Length);
 #elif defined(__ROUTER__)
  RouterIRecv(SlaveToProcID(slave), Buf, Length);
@@ -800,9 +793,6 @@ void CalculateWXY(float ** Bounds, unsigned char * Area, WKoeffs * W, float * Ux
           W->WY2[Ptr]  = 0.5*(Uys+Uym)/HYR[y].h;
          }
     }
-#if defined(__IMITATE__) && !defined(WIN32)
-   Check();
-#endif
 }
 
 #ifdef __PARALLEL__
@@ -833,9 +823,6 @@ void CalculateWZ(float ** Bounds, unsigned char * Area, WKoeffs * W, float * Uz,
           W->WZ2[Ptr]  = 0.5*(Uzs+Uzm)/HZR[z].h;
          }
     }
-#if defined(__IMITATE__) && !defined(WIN32)
-   Check();
-#endif
 }
 
 #ifdef __PARALLEL__
@@ -885,9 +872,6 @@ void CalculateDIV(float ** Bounds, unsigned char * Area, float * Ux, float * Uy,
              DIV[Ptr] = dFdx(UX)+dFdy(UY)+dFdz(UZ);
      }
     }
-#if defined(__IMITATE__) && !defined(WIN32)
-   Check();
-#endif
 }
 
 #undef _S
@@ -1143,9 +1127,6 @@ void OneLineGo (unsigned char * Area,
                     H1[_ZYX] = M[x+1]-H1[_ZYXP]*L[x+1]-G[x+1]*H1[IndexLast];
                }
            }
-#if defined(__IMITATE__) && !defined(WIN32)
-         Check();
-#endif
       }
  }
  memmove(H,H1,BoardSize);
@@ -1361,9 +1342,6 @@ void CorrectBounds (float ** Bounds,
              }
          }
     }
-#if defined(__IMITATE__) && !defined(WIN32)
-   Check();
-#endif
 }
 
 void AnalyzeBoard (float * H, unsigned char * Map, char Restrict, int UseOpenMP)
@@ -2049,6 +2027,318 @@ int TranslateBoundaries(float * Val, int Offset) {
  return 0;
 }
 
+#ifndef __PARALLEL__
+
+int TraceCmp(const void * A0, const void * B0)
+{
+	TraceTypeHost * A = (TraceTypeHost *)A0;
+	TraceTypeHost * B = (TraceTypeHost *)B0;
+	int d = B->Iters - A->Iters;
+	int i;
+
+	if (abs(d) > 0) return d;
+
+	for (i = 0; i < markZ99; i++) {
+		int p = B->KinetTraceWOrder[i];
+		int q = (B->Tr[p] - A->Tr[p]);
+		if (q != 0) return q;
+	}
+
+	return 0;
+}
+
+int TraceWCmp(const void * A0, const void * B0)
+{
+	TraceWSorter * A = (TraceWSorter *)A0;
+	TraceWSorter * B = (TraceWSorter *)B0;
+	float d = B->W - A->W;
+
+	return d < 0 ? -1 : (d > 0 ? +1 : 0);
+}
+
+float determ(float a1, float b1, float a2, float b2) {
+	return a1*b2 - a2*b1;
+}
+
+void GetPredictor(int p, int Iters3, int Iters2, int Iters1, int Iters, float * W1, float * Q) {
+	float a1, b1, a2, b2, s1, s2;
+	if (p == 3) {
+		a1 = Iters3*Iters3 + Iters2*Iters2 + Iters1*Iters1;
+		b1 = Iters3 + Iters2 + Iters1;
+		a2 = b1;
+		b2 = 3;
+		s1 = Iters2*Iters3 + Iters1*Iters2 + Iters*Iters1;
+		s2 = Iters2 + Iters1 + Iters;
+	} else if (p == 2) {
+		a1 = Iters2*Iters2 + Iters1*Iters1;
+		b1 = Iters2 + Iters1;
+		a2 = b1;
+		b2 = 2;
+		s1 = Iters1*Iters2 + Iters*Iters1;
+		s2 = Iters1 + Iters;
+	} else if (p == 1) {
+		*W1 = 1.0;
+		*Q = 0.0;
+		return;
+	}
+
+	float d = determ(a1, b1, a2, b2);
+	if (fabsf(d) < 1E-5) {
+		*W1 = 1.0;
+		*Q = 0.0;
+	} else {
+		*W1 = determ(s1, b1, s2, b2) / d;
+		*Q = determ(a1, s1, a2, s2) / d;
+	}
+}
+
+reenterable processKinetics(int init /* !!! 0 -- work, 1 -- GPUinit, 2 -- OpenMPinit */, int k, int group_size, int NKinets, int KinetChunkSize, TraceTypeHost * Traces,
+	KineticContext * Contexts, _global(1) KineticGlobal * KGlobal,
+	float * T, void * _Dn, int UseGear, int Method, _local(1) KineticContext * C) {
+	if (init) {
+#pragma pack(push, 1)
+		typedef union { __global void * p1; __global float ** p2; } converter;
+		converter c;
+#pragma pack(pop)
+	        __global float ** Dn;
+		int i, j, s, p;
+
+		c.p1 = _Dn;
+	        Dn = c.p2;
+
+		if (group_size != 0x7FFFFFFF) {
+			int offs = k - group_size;
+			for (j = 0; j < group_size; j++, offs++) {
+				if (!Contexts[j].LossPrecision)
+					for (i = 0; i < KGlobal->NASubst; i++)
+						Dn[KGlobal->TranMap[i]][Traces[offs].tag] = Contexts[j].Conc1[i];
+				Traces[offs].Iters = Contexts[j].Iters;
+				for (s = HistorySize-1; s > 0; s--)
+					Traces[offs].Timings[s] = Traces[offs].Timings[s-1];
+				Traces[offs].Timings[0] = (init == 1 ? last_execution_time(NULL) : 0.0f);
+				memmove(Traces[offs].Tr, Contexts[j].Trace, sizeof(TraceType));
+			}
+		} else {
+			gmemset(KGlobal->aMNK, 0, sizeof(KGlobal->aMNK));
+			gmemset(KGlobal->bMNK, 0, sizeof(KGlobal->bMNK));
+		}
+
+		group_size = 0;
+
+		for (; k < NKinets; k++) {
+			Contexts[group_size].LossPrecision = 0;
+			if (T)
+				SetTk(&Contexts[group_size], T[Traces[k].tag]);
+			else
+				SetTk(&Contexts[group_size], KGlobal->DefaultT);
+			for (i = 0; i < KGlobal->NASubst; i++)
+				Contexts[group_size].Conc0[i] = Dn[KGlobal->TranMap[i]][Traces[k].tag];
+			plan_last(0 /* !!! */, 0, 0, NKinets, KinetChunkSize, Traces, Contexts, KGlobal, T, _Dn, UseGear, Method, Contexts+group_size);
+			
+			group_size++;
+			if (k == NKinets-1 || group_size == KinetChunkSize) {
+/* !!! */
+				if (k == NKinets-1) {
+					int p;
+					for (p = group_size; p < KinetChunkSize; p++) {
+						Contexts[p].LossPrecision = 0;
+						if (T)
+							SetTk(&Contexts[p], T[Traces[k].tag]);
+						else
+							SetTk(&Contexts[p], KGlobal->DefaultT);
+						for (i = 0; i < KGlobal->NASubst; i++)
+							Contexts[p].Conc0[i] = Dn[KGlobal->TranMap[i]][Traces[k].tag];
+						plan_last(0 /* !!! */, 0, 0, NKinets, KinetChunkSize, Traces, Contexts, KGlobal, T, _Dn, UseGear, Method, Contexts+p);
+					}
+				}
+				plan_group_last;
+				plan_last(init /* !!! */, k+1, group_size, NKinets, KinetChunkSize, Traces, Contexts, KGlobal, T, _Dn, UseGear, Method, Contexts);
+
+				if (init == 1) {
+					plan_group_vectorize(NULL);
+				} else {
+					plan_group_parallelize;
+				}
+
+				return;
+			}
+		}
+
+		if (KGlobal->KinetTraceWNotFound) { 
+			for (j = 0; j < NKinets; j++) {
+				for (s = 0; s < markZ99; s++) {
+					KGlobal->bMNK[s] += Traces[j].Iters*Traces[j].Tr[s];
+					for (p = s; p < markZ99; p++)
+						KGlobal->aMNK[s][p] += Traces[j].Tr[p]*Traces[j].Tr[s];
+				}
+			}
+			for (s = 0; s < markZ99; s++) {
+				for (p = s; p < markZ99; p++)
+					KGlobal->aMNK[p][s] = KGlobal->aMNK[s][p];
+			}
+
+			for (s = 0; s < markZ99; s++) {
+				float pp = fabsf(KGlobal->bMNK[s]);
+				for (p = 0; p < markZ99; p++) {
+					float p1 = fabsf(KGlobal->aMNK[s][p]);
+					if (p1 > pp) pp = p1;
+				}
+				if (pp > 1.0f) {
+					for (p = 0; p < markZ99; p++)
+						KGlobal->aMNK[s][p] /= pp;
+					KGlobal->bMNK[s] /= pp;
+				}
+			}
+
+			for (k = 0; k < 5; k++) {
+				float alpha = 0.02f;
+				float f = 0.0f;
+				for (s = 0; s < markZ99; s++) {
+					float it = -KGlobal->bMNK[s];
+					for (p = 0; p < markZ99; p++)
+						it += KGlobal->aMNK[s][p]*KGlobal->KinetTraceW[p];
+					f += it*it;
+				}
+				for (j = 0; j < markZ99; j++) {
+					float delta = 0.001f;
+					float f1 = 0.0f;
+
+					KGlobal->KinetTraceW[j] += delta;
+					for (s = 0; s < markZ99; s++) {
+						float it = -KGlobal->bMNK[s];
+						for (p = 0; p < markZ99; p++)
+							it += KGlobal->aMNK[s][p]*KGlobal->KinetTraceW[p];
+						f1 += it*it;
+					}
+					KGlobal->KinetTraceW[j] -= delta;
+					KGlobal->gradMNK[j] = (f1 - f)/delta;
+				}
+				for (s = 0; s < markZ99; s++)
+					KGlobal->KinetTraceW[s] -= alpha*KGlobal->gradMNK[s];
+			}
+		}
+
+		#pragma omp parallel for schedule(guided) private(j,k,s)
+		for (j = 0; j < NKinets; j++) {
+			__global unsigned short int * buf = Traces[j].Tr3;
+			float f, maxt = 0.000000001f;
+			int errs[3];
+			short int ks;
+			signed char nump;
+
+			for (k = 0; k < HistorySize; k++)
+        	            if (Traces[j].Timings[k] > maxt)
+				maxt = Traces[j].Timings[k];
+
+			for (ks = 0; ks < markZ99; ks++) {
+				k = KGlobal->KinetTraceWOrder[ks];
+
+				errs[0] = abs(Traces[j].Prognosed0[k] - Traces[j].Tr[k]);
+				errs[1] = abs(Traces[j].Prognosed1[k] - Traces[j].Tr[k]);
+				errs[2] = abs(Traces[j].Prognosed2[k] - Traces[j].Tr[k]);
+
+				if (errs[0] < errs[1])
+					if (errs[0] < errs[2])
+						nump = 0;
+					else
+						nump = 2;
+				else
+					if (errs[2] < errs[1])
+						nump = 2;
+					else
+						nump = 1;
+
+				for (s = HistorySize-1; s > 0; s--)
+					Traces[j].Besters[s][k] = Traces[j].Besters[s-1][k];
+				Traces[j].Besters[0][k] = nump;
+
+				if (ks >= (markZ99 / 4) || fabsf(KGlobal->KinetTraceW[k]) <= 1E-6f) {
+					for (s = HistorySize-1; s > 0; s--)
+						Traces[j].Winners[s][k] = Traces[j].Winners[s-1][k];
+					Traces[j].Winners[0][k] = 0;
+
+					Traces[j].Prognosed0[k] = Traces[j].Prognosed1[k] = Traces[j].Prognosed2[k] = Traces[j].Tr[k];
+
+					buf[k] = Traces[j].Tr[k];
+				} else {
+					float Quality[3] = { 0.0f, 0.0f, 0.0f };
+					float W1[3];
+					float Q[3];
+
+					for (s = HistorySize-1; s > 0; s--) {
+						char w = Traces[j].Winners[s][k];
+						float t = Traces[j].Timings[s];
+						float d = t > 1E-9f ? maxt/t : maxt/1E-9f;
+						if (w == Traces[j].Besters[s][k])
+							Quality[w] += d;
+						else
+							Quality[w] -= d;
+					}
+
+					if (Quality[0] > Quality[1])
+						if (Quality[0] > Quality[2])
+							nump = 0;
+						else
+							nump = 2;
+					else
+						if (Quality[2] > Quality[1])
+							nump = 2;
+						else
+							nump = 1;
+
+					GetPredictor(
+						1, Traces[j].Tr3[k], Traces[j].Tr2[k], Traces[j].Tr1[k], Traces[j].Tr[k],
+						&W1[0], &Q[0]
+					);
+					Traces[j].KinetTraceW1[k] = W1[0];
+					Traces[j].KinetTraceQ1[k] = Q[0];
+					f = Traces[j].Tr[k]*W1[0] + Q[0];
+					if (f < 0.0f) Traces[j].Prognosed0[k] = 0;
+					else Traces[j].Prognosed0[k] = (unsigned short int) f;
+
+					GetPredictor(
+						2, Traces[j].Tr3[k], Traces[j].Tr2[k], Traces[j].Tr1[k], Traces[j].Tr[k],
+						&W1[1], &Q[1]
+					);
+					Traces[j].KinetTraceW2[k] = W1[1];
+					Traces[j].KinetTraceQ2[k] = Q[1];
+					f = Traces[j].Tr[k]*W1[1] + Q[1];
+					if (f < 0.0f) Traces[j].Prognosed1[k] = 0;
+					else Traces[j].Prognosed1[k] = (unsigned short int) f;
+
+					GetPredictor(
+						3, Traces[j].Tr3[k], Traces[j].Tr2[k], Traces[j].Tr1[k], Traces[j].Tr[k],
+						&W1[2], &Q[2]
+					);
+					Traces[j].KinetTraceW3[k] = W1[2];
+					Traces[j].KinetTraceQ3[k] = Q[2];
+					f = Traces[j].Tr[k]*W1[2] + Q[2];
+					if (f < 0.0f) Traces[j].Prognosed2[k] = 0;
+					else Traces[j].Prognosed2[k] = (unsigned short int) f;
+
+					for (s = HistorySize-1; s > 0; s--)
+						Traces[j].Winners[s][k] = Traces[j].Winners[s-1][k];
+					Traces[j].Winners[0][k] = nump;
+
+					buf[k] = nump == 0 ? Traces[j].Prognosed0[k] : (nump == 1 ? Traces[j].Prognosed1[k] : Traces[j].Prognosed2[k]);
+				}
+			}
+			Traces[j].Tr3 = Traces[j].Tr2;
+			Traces[j].Tr2 = Traces[j].Tr1;
+			Traces[j].Tr1 = Traces[j].Tr;
+			Traces[j].Tr = buf;
+		}
+	}
+	else { /* !!! */
+		OneTaktKinetic(KGlobal, C, UseGear, Method);
+		if (C->LossPrecision && UseGear) {
+			OneTaktKinetic(KGlobal, C, 0, Method);
+		}
+	}
+}
+
+#endif
+
 #ifdef __PARALLEL__
 void OneTakt(int RecvCommand, int RecvData, int SendData, int CheckCommand, double * MaxEps)
 #else
@@ -2179,7 +2469,7 @@ void OneTakt()
                for (j=0;j<NSubst-NLightSubst;j++)
                    {
                     i = MapSubsts[NLightSubst+j];
-                    CalculateWZ((float **) Vars.Bounds, Area, &WXYZ[CarrierPhase], UzSave, Uw[i], UseOpenMP);
+                    CalculateWZ((float **) Vars.Bounds, Area, &WXYZ[CarrierPhase], UzSave, (double)KGlobal.Uw[i], UseOpenMP);
                     EulerCalculate((float **) Vars.Bounds,
                                    Vars.Dn[i], KDn[i], SDn[i], &WXYZ[CarrierPhase],
                                    HXR, HYR, HZR,
@@ -2250,7 +2540,7 @@ void OneTakt()
           for (j=0;j<NSubst-NLightSubst;j++)
               {
                i = MapSubsts[NLightSubst+j];
-               if (SlowMode) CalculateWZ((float **) Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,Uw[i], UseOpenMP);
+               if (SlowMode) CalculateWZ((float **) Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,(double)KGlobal.Uw[i], UseOpenMP);
                Calculate((float **) Vars.Bounds,
                          NULL,Vars.Dn[i],KDn[i],SDn[i],&WXYZ[CarrierPhase],
                          HXR,HYR,HZR,
@@ -2453,49 +2743,52 @@ void OneTakt()
  if (NReact)
     {
      int EnhanceOpenMP = UseOpenMP && UseEnhancedOpenMP && NASubst>0 && (NASubst%nSMP || NASubst>3*nSMP);
-     InitH = min(InitH,TAU*0.001);
-     for (i=0; i<nSMP; i++)
-         Contexts[i]._EndTime = TAU;
+     static int _Iters = 0;
+     int init = _Iters < InitOpenMPIters;
+     TraceWSorter WS[markZ99];
+     TIME_STRUCT start, end;
 
-     #pragma omp parallel if(UseOpenMP)
-     #pragma omp for schedule(dynamic,OMP_KineticChunk) private(i,z,y,x,Ptr)
-     for (Ptr=0; Ptr<NX*NY*NZ; Ptr++)
-         if (CMap[Ptr]==Zero)
-            {
-#ifdef __OPENMP__
-             KineticContext * C = &Contexts[omp_get_thread_num()];
-#else
-             KineticContext * C = Contexts;
+     KGlobal.InitH = min(KGlobal.InitH,TAU*0.001f);
+     for (i=0; i<KinetChunkSize; i++)
+         Contexts[i]._EndTime = (float)TAU;
+
+     FTIME(&start);
+     qsort(Traces, NKinets, sizeof(Traces[0]), TraceCmp);
+
+     if (KGlobal.KinetTraceWNotFound) {
+        for (i = 0; i < markZ99; i++) {
+            WS[i].Order = i;
+            WS[i].W = KGlobal.KinetTraceW[i];
+        }
+        qsort(WS, markZ99, sizeof(WS[0]), TraceWCmp);
+        for (i = 0; i < markZ99; i++)
+            KGlobal.KinetTraceWOrder[i] = WS[i].Order;
+        KGlobal.KinetTraceWNotFound--;
+     }
+
+     if (PhaseVars[CarrierPhase]._T >= 0)
+	 processKinetics(init ? 2 : 1 /* !!! */, 0, 0x7FFFFFFF, NKinets, KinetChunkSize, Traces, Contexts, &KGlobal,
+		Vars.Name[PhaseVars[CarrierPhase]._T], Vars.Dn, UseGear, Adams_Rozhkov_Method, NULL);
+     else
+	 processKinetics(init ? 2 : 1 /* !!! */, 0, 0x7FFFFFFF, NKinets, KinetChunkSize, Traces, Contexts, &KGlobal,
+		NULL, Vars.Dn, UseGear, Adams_Rozhkov_Method, NULL);
+     _Iters++; /* !!! */
+     FTIME(&end);
+     KinetTime += DIFFTIME(start, end) - last_compile_time(NULL);
+
+#ifdef __DEBUG__
+     for (i = 0; i < markZ99; i++)
+         printf("%f ", KGlobal.KinetTraceW[KGlobal.KinetTraceWOrder[i]]);
+     printf("\n");
 #endif
-             C->LossPrecision = 0;
-             if (PhaseVars[CarrierPhase]._T>=0)
-                SetTk(C,Vars.Name[PhaseVars[CarrierPhase]._T][Ptr]);
-             else
-                SetTk(C,DefaultT);
-             for (i=0;i<NASubst;i++)
-                 C->Conc0[i] = Vars.Dn[TranMap[i]][Ptr];
 
-             OneTaktKinetic(C,UseGear,Adams_Rozhkov_Method);
-
-             if (!C->LossPrecision)
-                for (i=0;i<NASubst;i++)
-                    Vars.Dn[TranMap[i]][Ptr] = C->Conc1[i];
-             else
-                {
-                 z = Ptr/(NX*NY);
-                 y = (Ptr%(NX*NY))/NX;
-                 x = Ptr%NX;
-                 fprintf(StdOutput,"Loss precision in node (%i,%i,%i)\n",x,y,z);
-                 fflush(StdOutput);
-                }
-            }
      #pragma omp parallel if(EnhanceOpenMP)
      #pragma omp for schedule(dynamic) private(i)
      for (i=0;i<NASubst;i++)
          {
-          CorrectBounds(Vars.Bounds,Vars.Dn[TranMap[i]], NZ,NY,NX, NY*NX,NX,1, DescH,CMap,Area, 0, 0, UseOpenMP && (1-EnhanceOpenMP));
-          CorrectBounds(Vars.Bounds,Vars.Dn[TranMap[i]], NZ,NX,NY, NY*NX,1,NX, DescP,CMap,Area, 0, 1, UseOpenMP && (1-EnhanceOpenMP));
-          CorrectBounds(Vars.Bounds,Vars.Dn[TranMap[i]], NY,NX,NZ, NX,1,NY*NX, DescV,CMap,Area, 0, 2, UseOpenMP && (1-EnhanceOpenMP));
+          CorrectBounds(Vars.Bounds,Vars.Dn[KGlobal.TranMap[i]], NZ,NY,NX, NY*NX,NX,1, DescH,CMap,Area, 0, 0, UseOpenMP && (1-EnhanceOpenMP));
+          CorrectBounds(Vars.Bounds,Vars.Dn[KGlobal.TranMap[i]], NZ,NX,NY, NY*NX,1,NX, DescP,CMap,Area, 0, 1, UseOpenMP && (1-EnhanceOpenMP));
+          CorrectBounds(Vars.Bounds,Vars.Dn[KGlobal.TranMap[i]], NY,NX,NZ, NX,1,NY*NX, DescV,CMap,Area, 0, 2, UseOpenMP && (1-EnhanceOpenMP));
          }
     }
 #endif
@@ -2630,12 +2923,12 @@ void PackForUpExchange(float * Buf, int GH)
  int i;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp) ActualBuf = (float *) SHMEM_AT(GH,(NumEqs+NSubst)*2*NX*NY*sizeof(float));
 #endif
  for (i=0; i<NumEqs+NSubst; i++)
      memmove(&ActualBuf[i*2*NX*NY], &HBuff[BegBoard(i)+NZs2*NY*NX], 2*NX*NY*sizeof(float));
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp)
     {
      SHMEM_DT(ActualBuf,GH);
@@ -2649,7 +2942,7 @@ void UnPackAfterUpExchange(float * Buf)
  int i;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  int * GHbuf = (int *) Buf;
  if (SHMEMUp) ActualBuf = (float *) SHMEM_AT(*GHbuf,(NumEqs+NSubst)*2*NX*NY*sizeof(float));
 #endif
@@ -2658,7 +2951,7 @@ void UnPackAfterUpExchange(float * Buf)
       memmove(&HBuff[BegBoard(i)+NZ*NY*NX], &ActualBuf[i*2*NX*NY], NX*NY*sizeof(float));
       memmove(&HBuff[BegBoard(i)+NZs*NY*NX], &ActualBuf[(i*2+1)*NX*NY], NX*NY*sizeof(float));
      }
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp) SHMEM_DT(ActualBuf,*GHbuf);
 #endif
 }
@@ -2668,7 +2961,7 @@ void PackForDownExchange(float * Buf, int GH)
  int i;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMDown) ActualBuf = (float *) SHMEM_AT(GH,(NumEqs+NSubst)*2*NX*NY*sizeof(float));
 #endif
  for (i=0; i<NumEqs+NSubst; i++)
@@ -2676,7 +2969,7 @@ void PackForDownExchange(float * Buf, int GH)
       memmove(&ActualBuf[i*2*NX*NY], &HBuff[BegBoard(i)+2*NY*NX], NX*NY*sizeof(float));
       memmove(&ActualBuf[(i*2+1)*NX*NY], &HBuff[BegBoard(i)+1*NY*NX], NX*NY*sizeof(float));
      }
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMDown)
     {
      SHMEM_DT(ActualBuf,GH);
@@ -2690,13 +2983,13 @@ void UnPackAfterDownExchange(float * Buf)
  int i;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  int * GHbuf = (int *) Buf;
  if (SHMEMDown) ActualBuf = (float *) SHMEM_AT(*GHbuf,(NumEqs+NSubst)*2*NX*NY*sizeof(float));
 #endif
  for (i=0; i<NumEqs+NSubst; i++)
      memmove(&HBuff[BegOffs(i)], &ActualBuf[i*2*NX*NY], 2*NX*NY*sizeof(float));
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMDown) SHMEM_DT(ActualBuf,*GHbuf);
 #endif
 }
@@ -2706,11 +2999,11 @@ void PackGRAVForUpExchange(float * Buf, int GH)
  int i;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp) ActualBuf = (float *) SHMEM_AT(GH, NX*NY*sizeof(float));
 #endif
  memmove(ActualBuf, &GRAV[NZs1*NY*NX], NX*NY*sizeof(float));
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp)
     {
      SHMEM_DT(ActualBuf,GH);
@@ -2724,12 +3017,12 @@ void UnPackGRAVAfterUpExchange(float * Buf)
  int i;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  int * GHbuf = (int *) Buf;
  if (SHMEMUp) ActualBuf = (float *) SHMEM_AT(*GHbuf, NX*NY*sizeof(float));
 #endif
  memmove(&GRAV[NZs*NY*NX], ActualBuf, NX*NY*sizeof(float));
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp) SHMEM_DT(ActualBuf,*GHbuf);
 #endif
 }
@@ -2739,11 +3032,11 @@ void PackGRAVForDownExchange(float * Buf, int GH)
  int i;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMDown) ActualBuf = (float *) SHMEM_AT(GH, NX*NY*sizeof(float));
 #endif
  memmove(ActualBuf, &GRAV[NY*NX], NX*NY*sizeof(float));
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMDown)
     {
      SHMEM_DT(ActualBuf,GH);
@@ -2757,12 +3050,12 @@ void UnPackGRAVAfterDownExchange(float * Buf)
  int i;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  int * GHbuf = (int *) Buf;
  if (SHMEMDown) ActualBuf = (float *) SHMEM_AT(*GHbuf, NX*NY*sizeof(float));
 #endif
  memmove(GRAV, ActualBuf, NX*NY*sizeof(float));
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMDown) SHMEM_DT(ActualBuf,*GHbuf);
 #endif
 }
@@ -2819,12 +3112,12 @@ void PackPARTSForUpExchange(float * Buf, int GH)
 {
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp) ActualBuf = (float *) SHMEM_AT(GH, NX*NY*sizeof(float));
 #endif
  // memmove(ActualBuf, &DATA[UP], NX*NY*sizeof(float));
  PackParts(ActualBuf, 1);
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp)
     {
      SHMEM_DT(ActualBuf,GH);
@@ -2838,13 +3131,13 @@ void UnPackPARTSAfterUpExchange(float * Buf)
  int i, j;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  int * GHbuf = (int *) Buf;
  if (SHMEMUp) ActualBuf = (float *) SHMEM_AT(*GHbuf, NX*NY*sizeof(float));
 #endif
  // memmove(&DATA[UP], ActualBuf, NX*NY*sizeof(float));
  UnPackParts(ActualBuf);
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp) SHMEM_DT(ActualBuf,*GHbuf);
 #endif
 }
@@ -2853,12 +3146,12 @@ void PackPARTSForDownExchange(float * Buf, int GH)
 {
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMDown) ActualBuf = (float *) SHMEM_AT(GH, NX*NY*sizeof(float));
 #endif
  // memmove(ActualBuf, &DATA[DOWN], NX*NY*sizeof(float));
  PackParts(ActualBuf, 0);
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMDown)
     {
      SHMEM_DT(ActualBuf,GH);
@@ -2872,22 +3165,20 @@ void UnPackPARTSAfterDownExchange(float * Buf)
  int i, j;
  float * ActualBuf = Buf;
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  int * GHbuf = (int *) Buf;
  if (SHMEMDown) ActualBuf = (float *) SHMEM_AT(*GHbuf, NX*NY*sizeof(float));
 #endif
  // memmove(DATA[DOWN], ActualBuf, NX*NY*sizeof(float));
  UnPackParts(ActualBuf);
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMDown) SHMEM_DT(ActualBuf,*GHbuf);
 #endif
 }
 
 void SendNeighbour(int NeighbourID, byte * Buf, long Length)
 {
-#if defined(__IMITATE__) || defined(__EPX__)
- SendLink(InterLinks[NeighbourID],Buf, Length);
-#elif defined(__ROUTER_100__)
+#if defined(__ROUTER_100__)
  r_write(SlaveToProcID(NeighbourID), Buf, Length);
  w_write(SlaveToProcID(NeighbourID));
 #elif defined(__ROUTER__)
@@ -2899,9 +3190,7 @@ void SendNeighbour(int NeighbourID, byte * Buf, long Length)
 
 void RecvNeighbour(int NeighbourID, byte * Buf, long Length)
 {
-#if defined(__IMITATE__) || defined(__EPX__)
- RecvLink(InterLinks[NeighbourID], Buf, Length);
-#elif defined(__ROUTER_100__)
+#if defined(__ROUTER_100__)
  r_read(SlaveToProcID(NeighbourID), Buf, Length);
  w_read(SlaveToProcID(NeighbourID));
 #elif defined(__ROUTER__)
@@ -3056,126 +3345,9 @@ int         ZeroNodes;
 #ifdef __MPI__
 typedef enum {psHasNodes,psRequesting,psStopped} psModes;
 
-int               KYItems;
-float           * KYRecvBuf     = NULL;
-float           * KYSendBuf     = NULL;
-MPI_Request     * KYRequest     = NULL;
-MPI_Request     * _KYRequest    = NULL;
-MPI_Status      * KYStatus      = NULL;
-int               KYNumRequests;
-psModes         * KYState       = NULL;
-int             * KYProc        = NULL;
-int             * KYIndex       = NULL;
-char            * KYNotified    = NULL;
-int             * KYNumSended   = NULL;
-int             * KYSizeSended  = NULL;
-int            ** KYSendedIndex = NULL;
-int             * KYNumBuffer   = NULL;
-int             * KYSizeBuffer  = NULL;
-float          ** KYBuffer      = NULL;
-
 int IndexCmp(const void * _A, const void * _B)
 {
  return *((signed int *) _A) - *((signed int *) _B);
-}
-
-void DispatchKYBalance(int WaitMode, int Ptr)
-{
- /* ToDO: in OpenMP code results are written to _SortedIndex in first -- warning!!! */
- if (KYNumRequests)
-    {
-     int NumCompleted;
-     int i;
-
-     if (WaitMode)
-        MPI_Waitsome(KYNumRequests,KYRequest,&NumCompleted,KYIndex,KYStatus);
-     else
-        MPI_Testsome(KYNumRequests,KYRequest,&NumCompleted,KYIndex,KYStatus);
-     if (NumCompleted)
-        {
-         qsort(KYIndex,NumCompleted,sizeof(int),IndexCmp);
-         for (i=0; i<NumCompleted; i++)
-             {
-              int Ind  = KYIndex[i];
-              int Proc = KYProc[Ind];
-              int N    = KYRecvBuf[KYProc[Ind]*KYItems];
-              int St   = KYState[Ind];
-
-              switch (St) {
-                 case psHasNodes :
-                   if (N)
-                      {
-                       fprintf(StdOutput,"Slave%i : Algorithm error! START signal expected from %i\n",SlaveID,Proc);
-#ifdef __MVS__
-                       fclose(StdOutput);
-#endif
-                       AbortServer(501);
-                      }
-                   else
-                      KYState[Ind] = psRequesting;
-                   break;
-                 case psRequesting :
-                   if (N)
-                      {
-                       while (Ptr<ZeroNodes && !SortedIndex[Ptr].Iters) Ptr++;
-                       if (Ptr<ZeroNodes)
-                        {
-                         int PtrBuf = 1;
-                         int Num, Item;
-
-                         for (Num=0; Num<MaxKYBlockItems && Ptr<ZeroNodes; Ptr++)
-                          if (SortedIndex[Ptr].Iters)
-                           {
-                            if (KYNumSended[Proc]==KYSizeSended[Proc])
-                               KYSendedIndex[Proc] = (int *)
-                                  SafeRealloc(KYSendedIndex[Proc],
-                                              (KYSizeSended[Proc] += DeltaLong)*sizeof(int));
-                            KYSendedIndex[Proc][KYNumSended[Proc]++] = SortedIndex[Ptr].Index;
-                            for (Item=0; Item<NASubst; Item++)
-                                KYSendBuf[PtrBuf++] = HBuff[OffsBufDn(TranMap[Item])+SortedIndex[Ptr].Index];
-                            if (PhaseVars[CarrierPhase]._T>=0)
-                               KYSendBuf[PtrBuf++] = HBuff[BegBoard(PhaseVars[CarrierPhase]._T)+SortedIndex[Ptr].Index];
-                            else
-                               KYSendBuf[PtrBuf++] = DefaultT;
-                            SortedIndex[Ptr].Iters = 0;
-                            Num++;
-                           }
-                         KYSendBuf[0] = Num;
-                         MPI_Send(KYSendBuf,KYItems*sizeof(float),MPI_BYTE,Proc,4321,SlavesComm);
-                        }
-                       else if (!KYNotified[KYProc[Ind]])
-                        {
-                         KYNotified[KYProc[Ind]] = 1;
-                         KYSendBuf[0] = 0.0;
-                         MPI_Send(KYSendBuf,KYItems*sizeof(float),MPI_BYTE,Proc,4321,SlavesComm);
-                        }
-                      }
-                   else
-                      KYState[Ind] = psStopped;
-              }
-             }
-         /* Del Stopped. Irecv others from KYIndex */
-         for (i=NumCompleted-1; i>=0; i--)
-             {
-              int Ind = KYIndex[i];
-
-              if (KYState[Ind]==psStopped)
-                 {
-                  if (Ind<KYNumRequests-1)
-                     {
-                      memmove(&KYProc[Ind],&KYProc[Ind+1],(KYNumRequests-Ind-1)*sizeof(int));
-                      memmove(&KYState[Ind],&KYState[Ind+1],(KYNumRequests-Ind-1)*sizeof(psModes));
-                      memmove(&KYRequest[Ind],&KYRequest[Ind+1],(KYNumRequests-Ind-1)*sizeof(MPI_Request));
-                     }
-                  KYNumRequests--;
-                 }
-              else
-                 MPI_Irecv(&KYRecvBuf[KYProc[Ind]*KYItems],
-                           (KYState[Ind]<psRequesting ? KYItems : 1)*sizeof(float),
-                           MPI_BYTE,KYProc[Ind],4321,SlavesComm,&KYRequest[Ind]);
-             }
-        }
-    }
 }
 #endif
 
@@ -3209,6 +3381,13 @@ int InitSpecialBounds(unsigned char * Area, int V1, int V2, int InitPtr)
                 j++;
                }
  return j;
+}
+
+unsigned int savedIters;
+
+#pragma memoization(t,g,o) lin_extrapolator(150, 2) controlled(50, 1)
+void prognose_load(int counter, unsigned int Index, double Iters[1]) {
+   *Iters = savedIters;
 }
 
 void Slave()
@@ -3377,42 +3556,6 @@ void Slave()
      MaxLongs      = (unsigned int *)  SafeMalloc((TotalProcs-1)*sizeof(unsigned int));
      Longs         = (unsigned int *)  SafeMalloc((TotalProcs-1)*sizeof(unsigned int));
 
-#ifdef __MPI__
-#ifdef __OPENMP__
-     if (UseKYBal && omp_get_num_procs()>1)
-        {
-         fprintf(StdOutput,"KY load balancing has not been realised with OPENMP SMP: turning off...\n");
-         fflush(StdOutput);
-         UseKYBal = 0;
-        }
-#endif
-     if (UseKYBal)
-        {
-         KYItems       = 1+MaxKYBlockItems*(NASubst+1);
-         KYRecvBuf     = (float *) SafeMalloc(KYItems*(TotalProcs-1)*sizeof(float));
-         KYSendBuf     = (float *) SafeMalloc(KYItems*sizeof(float));
-         KYRequest     = (MPI_Request *) SafeMalloc((TotalProcs-2)*sizeof(MPI_Request));
-         _KYRequest    = (MPI_Request *) SafeMalloc((TotalProcs-1)*sizeof(MPI_Request));
-         KYStatus      = (MPI_Status *) SafeMalloc((TotalProcs-1)*sizeof(MPI_Status));
-         KYState       = (psModes *) SafeMalloc((TotalProcs-2)*sizeof(psModes));
-         KYProc        = (int *) SafeMalloc((TotalProcs-2)*sizeof(int));
-         KYIndex       = (int *) SafeMalloc((TotalProcs-2)*sizeof(int));
-         KYNotified    = (char *) SafeMalloc((TotalProcs-1)*sizeof(char));
-         KYNumSended   = (int *) SafeMalloc((TotalProcs-1)*sizeof(int));
-         KYSizeSended  = (int *) SafeMalloc((TotalProcs-1)*sizeof(int));
-         KYSendedIndex = (int **) SafeMalloc((TotalProcs-1)*sizeof(int *));
-         KYNumBuffer   = (int *) SafeMalloc((TotalProcs-1)*sizeof(int));
-         KYSizeBuffer  = (int *) SafeMalloc((TotalProcs-1)*sizeof(int));
-         KYBuffer      = (float **) SafeMalloc((TotalProcs-1)*sizeof(float *));
-         for (i=0; i<TotalProcs-1; i++)
-             {
-              KYSizeSended[i]  = 0;
-              KYSendedIndex[i] = NULL;
-              KYSizeBuffer[i]  = 0;
-              KYBuffer[i]      = NULL;
-             }
-        }
-#endif
      if (CalculateAll)
         {
          Ptr = 0;
@@ -3456,7 +3599,7 @@ void Slave()
      DsizeG = SHMEMDown ? sizeof(int) : NX*NY*sizeof(float);
  }
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp) GHU = SHMEM_GET((NumEqs+NSubst)*2*NX*NY*sizeof(float));
  if (SHMEMDown) GHD = SHMEM_GET((NumEqs+NSubst)*2*NX*NY*sizeof(float));
  if (SHMEMUp) GHUG = CheckTau ? SHMEM_GET(NX*NY*sizeof(float)) : 0;
@@ -3501,6 +3644,7 @@ void Slave()
     RecvPacket(&Packet);
     TAU      = Packet._TAU;
     NReact   = Packet._NReact;
+	KGlobal.NReact = NReact;
     takt     = Packet._takt;
     CalcBase = Packet._CalcBase;
 
@@ -3688,7 +3832,7 @@ void Slave()
                       for (j=0;j<NSubst-NLightSubst;j++)
                           {
                            i = MapSubsts[NLightSubst+j];
-                           CalculateWZ((float **) Vars.Bounds, Area, &WXYZ[CarrierPhase], UzSave, Uw[i], Stage>=NExp, UseOpenMP);
+                           CalculateWZ((float **) Vars.Bounds, Area, &WXYZ[CarrierPhase], UzSave, (double)KGlobal.Uw[i], Stage>=NExp, UseOpenMP);
                            EulerCalculate((float **) Vars.Bounds,
                                           &HBuff[BegBoard(NumEqs+i)], KDn[i], SDn[i], &WXYZ[CarrierPhase],
                                           HXR, HYR, HZR,
@@ -3774,7 +3918,7 @@ void Slave()
              for (j=0;j<NSubst-NLightSubst;j++)
                  {
                   i = MapSubsts[NLightSubst+j];
-                  if (SlowMode) CalculateWZ(Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,Uw[i],Stage>=NExp, UseOpenMP);
+                  if (SlowMode) CalculateWZ(Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,(double)KGlobal.Uw[i],Stage>=NExp, UseOpenMP);
                   Process_Z(Vars.Bounds,NULL,NumEqs+i,KDn[i],SDn[i],D,0.0,&WXYZ[CarrierPhase],CMap,Area,Boundaries,rsPositive,1,HZreg,0, UseOpenMP);
                  }
 
@@ -3882,9 +4026,9 @@ void Slave()
 
     if (NReact)
        {
-        InitH   = min(InitH,TAU*0.001);
+        KGlobal.InitH   = min(KGlobal.InitH,TAU*0.001f);
         for (i=0; i<nSMP; i++)
-            Contexts[i]._EndTime = TAU;
+            Contexts[i]._EndTime = (float)TAU;
 
         if (UseGear)
            {
@@ -4008,11 +4152,11 @@ void Slave()
                                   }
                                ArrangeIndex[CurProc][Longs[CurProc]-1] = SortedIndex[Count].Index;
                                for (j=0; j<NASubst; j++)
-                                   Buffers[CurProc][Ptr++] = HBuff[OffsBufDn(TranMap[j])+SortedIndex[Count].Index];
+                                   Buffers[CurProc][Ptr++] = HBuff[OffsBufDn(KGlobal.TranMap[j])+SortedIndex[Count].Index];
                                if (PhaseVars[CarrierPhase]._T>=0)
                                   Buffers[CurProc][Ptr++] = HBuff[BegBoard(PhaseVars[CarrierPhase]._T)+SortedIndex[Count].Index];
                                else
-                                  Buffers[CurProc][Ptr++] = (float)DefaultT;
+                                  Buffers[CurProc][Ptr++] = (float)KGlobal.DefaultT;
                                SortedIndex[Count].Iters = 0;
                               }
                     /* Отправляем узлы списком */
@@ -4054,26 +4198,6 @@ void Slave()
 #endif
                       }
 
-#ifdef __MPI__
-            if (UseKYBal)
-               {
-                KYNumRequests = TotalProcs-2;
-                for (i=0, Count=0; i<TotalProcs-1; i++)
-                    {
-                     if (i!=SlaveID)
-                        {
-                         /* Init receive requests from ALL */
-                         KYProc[Count] = i;
-                         MPI_Irecv(&KYRecvBuf[i*KYItems],KYItems*sizeof(float),
-                                   MPI_BYTE,KYProc[Count],4321,SlavesComm,&KYRequest[Count]);
-                         KYNotified[i] = 0;
-                         KYState[Count++] = psHasNodes;
-                        }
-                     KYNumSended[i] = 0;
-                     KYNumBuffer[i] = 0;
-                    }
-               }
-#endif
             RealLoad = 0;
             WCount = 0;
             if (CalculateAll)
@@ -4097,11 +4221,11 @@ void Slave()
                        if (PhaseVars[CarrierPhase]._T>=0)
                           SetTk(CC,HBuff[BegBoard(PhaseVars[CarrierPhase]._T)+Ptr]);
                        else
-                          SetTk(CC,(float)DefaultT);
+                          SetTk(CC,(float)KGlobal.DefaultT);
                        for (i=0; i<NASubst; i++)
-                           CC->Conc0[i] = HBuff[OffsBufDn(TranMap[i])+Ptr];
+                           CC->Conc0[i] = HBuff[OffsBufDn(KGlobal.TranMap[i])+Ptr];
 
-                       OneTaktKinetic(CC,UseGear,Adams_Rozhkov_Method);
+                       OneTaktKinetic(&KGlobal,CC,UseGear,Adams_Rozhkov_Method);
                        #pragma omp critical
                          _WCount = WCount++;
                        _SortedIndex[_WCount].Index = Ptr;
@@ -4110,112 +4234,15 @@ void Slave()
 
                        if (!CC->LossPrecision)
                           for (i=0; i<NASubst; i++)
-                              HBuff[OffsBufDn(TranMap[i])+Ptr] = CC->Conc1[i];
+                              HBuff[OffsBufDn(KGlobal.TranMap[i])+Ptr] = CC->Conc1[i];
                        else {
                           fprintf(StdOutput,"Slave(%i) : Loss precision in node (%i) : %s\n",SlaveID,Ptr,
                                  CC->KinErrorInfo.LossH==0 ? "Too many iterations" : "Local Tau tends to zero");
                           fflush(StdOutput);
                        }
-#ifdef __MPI__
-                       if (UseKYBal)
-                          DispatchKYBalance(0,Count+1);
-#endif
                       }
                memmove(SortedIndex,_SortedIndex,WCount*sizeof(SortInfo));
               }
-#ifdef __MPI__
-            if (UseKYBal) /* Needs to be parallelized in OpenMP-style for more than 1 processors in block */
-               {
-                int HasNodesIndex;
-                /* Send START signal to {psHasNodes,psRequesting} */
-                KYSendBuf[0] = 0.0;
-                for (i=0; i<TotalProcs-1; i++)
-                    if (i!=SlaveID && !KYNotified[i])
-                       {
-                        KYNotified[i] = 1;
-                        MPI_Send(KYSendBuf,KYItems*sizeof(float),MPI_BYTE,i,4321,SlavesComm);
-                       }
-                if (!GearReceiverFlag)
-                   do
-                     {
-                      int NumReceivedNodes;
-
-                      for (i=0, HasNodesIndex = -1; i<KYNumRequests && HasNodesIndex<0; i++)
-                          if (KYState[i]==psHasNodes)
-                             HasNodesIndex = i;
-
-                      if (HasNodesIndex>=0)
-                         {
-                          int Proc = KYProc[HasNodesIndex];
-
-                          KYSendBuf[0] = 1.0;
-                          MPI_Send(KYSendBuf,sizeof(float),MPI_BYTE,Proc,4321,SlavesComm);
-                          MPI_Wait(&KYRequest[HasNodesIndex],&KYStatus[HasNodesIndex]);
-                          WPtr = Proc*KYItems;
-                          NumReceivedNodes = (int)KYRecvBuf[WPtr++];
-                          if (!NumReceivedNodes)
-                             KYState[HasNodesIndex] = psRequesting;
-                          else
-                             {
-                              DebugPrintf(DEBUG_FILE,"Slave%i : R%i(%i)\n",SlaveID,NumReceivedNodes,Proc);
-                              for (i=0; i<NumReceivedNodes; i++)
-                                  {
-#ifdef __OPENMP__
-                                   KineticContext * CC = &Contexts[omp_get_thread_num()];
-#else
-                                   KineticContext * CC = Contexts;
-#endif
-                                   CC->LossPrecision = 0;
-                                   for (j=0; j<NASubst; j++)
-                                       CC->Conc0[j] = KYRecvBuf[WPtr++];
-                                   SetTk(CC,KYRecvBuf[WPtr++]);
-
-                                   OneTaktKinetic(CC,UseGear,Adams_Rozhkov_Method);
-                                   if (KYSizeBuffer[Proc]<=KYNumBuffer[Proc]+NASubst)
-                                      KYBuffer[Proc] = (float *) SafeRealloc(KYBuffer[Proc],
-                                           (KYSizeBuffer[Proc]+=DeltaLong)*sizeof(float));
-                                   for (j=0; j<NASubst; j++)
-                                       KYBuffer[Proc][KYNumBuffer[Proc]++] =
-                                         CC->LossPrecision==0 ? CC->Conc1[j] : CC->Conc0[j];
-                                   KYBuffer[Proc][KYNumBuffer[Proc]++] = CC->Iters+1.0f;
-                                   RealLoad += CC->Iters+1;
-
-                                   if (CC->LossPrecision) {
-                                      fprintf(StdOutput,"Slave(%i) : Loss precision in received node : %s\n",SlaveID,
-                                             CC->KinErrorInfo.LossH==0 ? "Too many iterations" : "Local Tau tends to zero");
-                                      fflush(StdOutput);
-                                   }
-                                  }
-                             }
-                          MPI_Irecv(&KYRecvBuf[Proc*KYItems],
-                                    (NumReceivedNodes==0 ? 1 : KYItems)*sizeof(float),
-                                    MPI_BYTE,KYProc[HasNodesIndex],4321,SlavesComm,&KYRequest[HasNodesIndex]);
-                         }
-                     }
-                   while (HasNodesIndex>=0);
-                KYSendBuf[0] = 0.0;
-                for (i=0; i<TotalProcs-1; i++) /* Send STOP signal to ALL */
-                    {
-                     _KYRequest[i] = MPI_REQUEST_NULL;
-                     if (i!=SlaveID)
-                        {
-                         MPI_Send(KYSendBuf,sizeof(float),MPI_BYTE,i,4321,SlavesComm);
-                         if (KYNumBuffer[i])
-                            MPI_Send(KYBuffer[i],KYNumBuffer[i]*sizeof(float),MPI_BYTE,i,432,SlavesComm);
-                         if (KYNumSended[i])
-                            {
-                             int NRecvItems = KYNumSended[i]*(NASubst+1);
-
-                             if (NRecvItems>KYSizeBuffer[i])
-                                KYBuffer[i] = (float *) SafeRealloc(KYBuffer[i],
-                                     NRecvItems*sizeof(float));
-                             MPI_Irecv(KYBuffer[i],NRecvItems*sizeof(float),
-                                       MPI_BYTE,i,432,SlavesComm,&_KYRequest[i]);
-                            }
-                        }
-                    }
-               }
-#endif
             for (i=0; i<NumTransactions; i++)
                 {
                  CurProc = Transactions[i].Index;
@@ -4249,7 +4276,7 @@ void Slave()
                               CC->Conc0[j] = Buffers[CurProc][Ptr++];
                           SetTk(CC,Buffers[CurProc][Ptr++]);
 
-                          OneTaktKinetic(CC,UseGear,Adams_Rozhkov_Method);
+                          OneTaktKinetic(&KGlobal,CC,UseGear,Adams_Rozhkov_Method);
                           Buffers[CurProc][WPtr+NASubst] = CC->Iters+1.0f;
                           addRealLoad += CC->Iters+1;
 
@@ -4277,41 +4304,37 @@ void Slave()
                         for (Count=0, Ptr=0; (unsigned int)Count<Longs[CurProc]; Count++)
                             {
                              for (j=0; j<NASubst; j++)
-                                 HBuff[OffsBufDn(TranMap[j])+ArrangeIndex[CurProc][Count]] = Buffers[CurProc][Ptr++];
+                                 HBuff[OffsBufDn(KGlobal.TranMap[j])+ArrangeIndex[CurProc][Count]] = Buffers[CurProc][Ptr++];
                              SortedIndex[WCount].Index   = ArrangeIndex[CurProc][Count];
                              SortedIndex[WCount++].Iters = (unsigned short) Buffers[CurProc][Ptr++];
                             }
                        }
                 }
-#ifdef __MPI__
-            if (UseKYBal && KYNumRequests)
-               while (KYNumRequests)
-                  DispatchKYBalance(1,ZeroNodes);
-            if (UseKYBal)
-               {
-                MPI_Waitall(TotalProcs-1,_KYRequest,KYStatus);
-                for (i=0; i<TotalProcs-1; i++)
-                    for (j=0, WPtr=0; j<KYNumSended[i]; j++)
-                        {
-                         int k;
-
-                         Ptr = KYSendedIndex[i][j];
-                         for (k=0; k<NASubst; k++)
-                             HBuff[OffsBufDn(TranMap[k])+Ptr] = KYBuffer[i][WPtr++];
-                         SortedIndex[WCount].Index = Ptr;
-                         SortedIndex[WCount++].Iters = (unsigned short) KYBuffer[i][WPtr++];
-                        }
-               }
-#endif
             /* !!!!! */
             DebugPrintf(DEBUG_FILE,"Slave%i : PredictedLoad(%li) & RealLoad(%li)\n",SlaveID,AverageLoad,RealLoad);
             /* !!!!! */
 
-            if (CalculateAll)
+            if (CalculateAll) {
+               static int counter = 0;
+               for (i = 0; i < ZeroNodes; i++) {
+                   double p = SortedIndex[i].Iters;
+                   savedIters = p;
+                   prognose_load(counter, SortedIndex[i].Index, &p);
+               }
+               counter++;
+               if (counter > 50)
+                  for (i = 0; i < ZeroNodes; i++) {
+                      double p = 100;
+                      savedIters = SortedIndex[i].Iters;
+                      predict_prognose_load(counter, SortedIndex[i].Index, &p);
+                      if (p == p)
+                         SortedIndex[i].Iters = p > 0 ? (int) p : 4;
+                  }
                qsort(SortedIndex,ZeroNodes,sizeof(SortInfo),SortInfoCmp);
+            }
            }
         else
-          if (CalculateAll)
+          if (CalculateAll) {
              #pragma omp parallel if(UseOpenMP)
              #pragma omp for schedule(dynamic,OMP_KineticChunk) private(i,z,y,x,Ptr)
                for (Ptr=0; Ptr<NX*NY*NZ; Ptr++)
@@ -4326,15 +4349,15 @@ void Slave()
                        if (PhaseVars[CarrierPhase]._T>=0)
                           SetTk(CC,HBuff[BegBoard(PhaseVars[CarrierPhase]._T)+Ptr]);
                        else
-                          SetTk(CC,(float)DefaultT);
+                          SetTk(CC,(float)KGlobal.DefaultT);
                        for (i=0;i<NASubst;i++)
-                           CC->Conc0[i] = HBuff[OffsBufDn(TranMap[i])+Ptr];
+                           CC->Conc0[i] = HBuff[OffsBufDn(KGlobal.TranMap[i])+Ptr];
 
-                       OneTaktKinetic(CC,UseGear,Adams_Rozhkov_Method);
+                       OneTaktKinetic(&KGlobal,CC,UseGear,Adams_Rozhkov_Method);
 
                        if (!CC->LossPrecision)
                           for (i=0;i<NASubst;i++)
-                              HBuff[OffsBufDn(TranMap[i])+Ptr] = CC->Conc1[i];
+                              HBuff[OffsBufDn(KGlobal.TranMap[i])+Ptr] = CC->Conc1[i];
                        else
                           {
                            z = Ptr/(NX*NY);
@@ -4345,6 +4368,7 @@ void Slave()
                            fflush(StdOutput);
                           }
                       }
+          }
 
         if (CalculateAll)
            {
@@ -4353,9 +4377,9 @@ void Slave()
             #pragma omp for schedule(dynamic) private(i)
             for (i=0;i<NASubst;i++)
                 {
-                 CorrectBounds(Vars.Bounds,&HBuff[OffsBufDn(TranMap[i])], NZ,NY,NX, NY*NX,NX,1, DescH,CMap,Area, 0, 0, UseOpenMP && (1-EnhanceOpenMP));
-                 CorrectBounds(Vars.Bounds,&HBuff[OffsBufDn(TranMap[i])], NZ,NX,NY, NY*NX,1,NX, DescP,CMap,Area, 0, 1, UseOpenMP && (1-EnhanceOpenMP));
-                 CorrectBounds(Vars.Bounds,&HBuff[OffsBufDn(TranMap[i])], NY,NX,NZ, NX,1,NY*NX, DescV,CMap,Area, 0, 2, UseOpenMP && (1-EnhanceOpenMP));
+                 CorrectBounds(Vars.Bounds,&HBuff[OffsBufDn(KGlobal.TranMap[i])], NZ,NY,NX, NY*NX,NX,1, DescH,CMap,Area, 0, 0, UseOpenMP && (1-EnhanceOpenMP));
+                 CorrectBounds(Vars.Bounds,&HBuff[OffsBufDn(KGlobal.TranMap[i])], NZ,NX,NY, NY*NX,1,NX, DescP,CMap,Area, 0, 1, UseOpenMP && (1-EnhanceOpenMP));
+                 CorrectBounds(Vars.Bounds,&HBuff[OffsBufDn(KGlobal.TranMap[i])], NY,NX,NZ, NX,1,NY*NX, DescV,CMap,Area, 0, 2, UseOpenMP && (1-EnhanceOpenMP));
                 }
            }
        }
@@ -4518,7 +4542,7 @@ void Slave()
     free(HDrG);
  }
 
-#if !defined(__EPX__) && !defined(__IMITATE__) && !defined(__ROUTER_100__)
+#if !defined(__ROUTER_100__)
  if (SHMEMUp) SHMEM_RM(GHU);
  if (SHMEMDown) SHMEM_RM(GHD);
  if (SHMEMUp && CheckTau) SHMEM_RM(GHUG);
@@ -4537,21 +4561,6 @@ void Slave()
     {
 #if defined(__MPI__) || defined(__ROUTER__) || defined(__ROUTER_100__)
      free(GearRequests);
-#endif
-#ifdef __MPI__
-     if (UseKYBal)
-        {
-         free(KYRecvBuf); free(KYSendBuf); free(KYRequest);
-         free(KYStatus);  free(KYState);   free(KYProc);
-         for (i=0; i<TotalProcs-1; i++)
-             {
-              free(KYSendedIndex[i]);
-              free(KYBuffer[i]);
-             }
-         free(KYIndex);     free(KYNotified);   free(KYSizeBuffer);
-         free(KYNumSended); free(KYSizeSended); free(KYSendedIndex);
-         free(KYNumBuffer); free(_KYRequest);
-        }
 #endif
      free(Transactions);
      free(WorkLoad);
@@ -4598,7 +4607,10 @@ void OneCheckedTakt()
 #ifndef __PARALLEL__
  MoveBlocks(&Old,&Vars);
 #endif
- if (NReact) NReact = 0;
+ if (NReact) {
+	 NReact = 0;
+	 KGlobal.NReact = 0;
+ }
 #ifdef __PARALLEL__
  OneTakt(0 /* No end syncrocommand */, RecvData, 0 /* No send data to master */, CHK_Phase1 /* Vars->Old */, NULL);
 #else
@@ -4644,6 +4656,7 @@ void OneCheckedTakt()
  if (K < 0.001) K = 0.001;
 
  NReact = SaveNR;
+ KGlobal.NReact = NReact;
  if (Flag = (K<1.0 || (K>1.0 && !DecreaseOnly)))
     {
      TAU = SaveTau*K;
@@ -4715,27 +4728,6 @@ unsigned char * RecvMap(int FirstFlag, int LastFlag, unsigned char * AreaMap,
  return Result;
 }
 
-#if defined(__IMITATE__) || defined(__EPX__)
-LinkCB_t * CheckedConnectSlave(int MyProcID, int ToID)
-{
- LinkCB_t * Result;
- int        error;
-
- Result = ConnectLink(ToID,1234,&error);
-
- if (error)
-    {
-     fprintf(StdOutput,"Slave(%i) : Error (%i) connecting to Slave(%i)\n",MyProcID,error,ToID);
-#ifdef __MVS__
-     fclose(StdOutput);
-#endif
-     AbortServer(3);
-    }
-
- return Result;
-}
-#endif
-
 #endif
 
 FILE * OpenBoardFile(FILE * SavFile, int * Save, char * ResName, _int Cadres)
@@ -4789,17 +4781,19 @@ enum EkoVars {
 
 void AfterNReact(void)
 {
+ KGlobal.NReact = NReact;
+ KGlobal.NSubst = NSubst;
  if (NReact)
     if (Variables[varNSubst].VarUse && NSubst)
        {
-        AllocateKineticByReactions();
-        Variables[varEA].VarMap        = EA;
+		memset(KGlobal.Activity, 0, sizeof(KGlobal.Activity));;
+        Variables[varEA].VarMap        = KGlobal.EA;
         Variables[varEA].VarMaxN       = NReact;
         Variables[varEA].VarMinN       = NReact;
-        Variables[varA].VarMap         = _A;
+        Variables[varA].VarMap         = KGlobal._A;
         Variables[varA].VarMaxN        = NReact;
         Variables[varA].VarMinN        = NReact;
-        Variables[varTn].VarMap        = Tn;
+        Variables[varTn].VarMap        = KGlobal.Tn;
         Variables[varTn].VarMaxN       = NReact;
         Variables[varTn].VarMinN       = NReact;
         Variables[varReaction].VarMaxN = 1;
@@ -4828,7 +4822,7 @@ int HandleReaction(char * React)
 {
  static int ReactCount = 0;
 
- return !NReact || Translate(ReactCount++,React);
+ return !NReact || Translate(&KGlobal,ReactCount++,React);
 }
 
 char * BeforeHX(char * Msg)
@@ -4895,15 +4889,16 @@ void AddVars()
  AddVar(_HZ,"HZ",fltT,MaxNX,0,1,BeforeHZ,NULL,NULL,1,1,0);
  AddVar(&SaveAllHistory,"SaveAllHistory",intT,1,1,1,NULL,NULL,NULL,1,1,0);
  AddVar(&NSubst,"NSubst",intT,1,1,1,NULL,NULL,NULL,0,0,1);
- AddVar(Names,"Names",chrT,MaxActSubst,0,SubstNameLength,NULL,NULL,NULL,0,0,1);
- AddVar(Uw,"Uw",fltT,MaxActSubst,0,1,NULL,NULL,NULL,0,0,1);
+ AddVar(KGlobal.Names,"Names",chrT,MaxActSubst,0,SubstNameLength,NULL,NULL,NULL,0,0,1);
+ AddVar(KGlobal.Uw,"Uw",ffltT,MaxActSubst,0,1,NULL,NULL,NULL,0,0,1);
  AddVar(ZeroC,"ZeroC",fltT,MaxActSubst,0,1,NULL,NULL,NULL,0,0,1);
  AddVar(&NReact,"NReact",intT,1,1,1,NULL,NULL,AfterNReact,0,0,2);
- AddVar(NULL,"EA",fltT,0,0,1,BeforeAnyRPrm,NULL,NULL,0,0,2);
- AddVar(NULL,"A",fltT,0,0,1,BeforeAnyRPrm,NULL,NULL,0,0,2);
- AddVar(NULL,"Tn",fltT,0,0,1,BeforeAnyRPrm,NULL,NULL,0,0,2);
+ AddVar(NULL,"EA",ffltT,0,0,1,BeforeAnyRPrm,NULL,NULL,0,0,2);
+ AddVar(NULL,"A",ffltT,0,0,1,BeforeAnyRPrm,NULL,NULL,0,0,2);
+ AddVar(NULL,"Tn",ffltT,0,0,1,BeforeAnyRPrm,NULL,NULL,0,0,2);
  AddVar(NULL,"Reaction",usrT,0,0,0,BeforeAnyRPrm,HandleReaction,NULL,0,0,2);
  AddVar(&UseGear,"UseGear",intT,1,1,1,NULL,NULL,NULL,0,0,2);
+ AddVar(&SetSteadyKinetics,"SetSteady",intT,1,1,1,NULL,NULL,NULL,1,1,2); /* !!! */
  AddVar(&CheckTau,"CheckTau",intT,1,1,1,NULL,NULL,NULL,0,0,3);
  AddVar(&MaxTau,"MaxTau",fltT,1,1,1,NULL,NULL,NULL,0,0,3);
  AddVar(&DecreaseOnly,"DecreaseOnly",intT,1,1,1,NULL,NULL,NULL,0,0,3);
@@ -4943,7 +4938,7 @@ void AddVars()
  AddVar(&MinGap,"MinGap",intT,1,1,1,NULL,NULL,NULL,1,1,(char) (NSect-1));
  AddVar(Division,"Division",intT,sizeof(Division)/sizeof(Division[0]),1,1,NULL,NULL,NULL,1,1,(char) (NSect-1));
  AddSection("Default",1);
- AddVar(&DefaultT,"DefaultT",fltT,1,1,1,NULL,NULL,NULL,1,1,(char) (NSect-1));
+ AddVar(&KGlobal.DefaultT,"DefaultT",ffltT,1,1,1,NULL,NULL,NULL,1,1,(char) (NSect-1));
 }
 
 #ifdef __PARALLEL__
@@ -5064,6 +5059,24 @@ int main(void)
  StdOutput = stdout;
 #endif
 
+ KGlobal.MaxIterations = 1000;
+ KGlobal.InitTime = 0.0f; /* Начальное время интегрирования */
+ KGlobal.CalcEps = 1E-2f; /* Относительная точность интегрирования ST1/eps */
+ KGlobal.MinH = 1.0E-18f;/* Минимальный шаг интегрирования ST1/hmin */
+
+ KGlobal.DefaultT = 27.0f;
+
+ KGlobal.InitH = 1E-7f;  /* Начальный шаг интегрирования h */
+
+ KGlobal.AdamsOrder = 4;
+ KGlobal.Fail = 0;
+
+ KGlobal.KinetTraceWNotFound = 7;
+ for (Ptr = 0; Ptr < markZ99; Ptr++) {
+     KGlobal.KinetTraceW[Ptr] = 0.0f;
+     KGlobal.KinetTraceWOrder[Ptr] = Ptr;
+ }
+
 #ifdef __PARALLEL__
 
 #ifdef __MPI__
@@ -5126,55 +5139,6 @@ int main(void)
     }
  DebugPrintf(DEBUG_FILE,"Initialised\n");
  /* Устанавливаем подтопологию "звезда" */
-#if defined(__IMITATE__) || defined(__EPX__)
- if (MasterFlag)
-    {
-     SlaveLinks   = (LinkCB_t **) SafeMalloc((nProcs-1)*sizeof(LinkCB_t *));
-     Options      = (Option_t *)  SafeMalloc((nProcs-1)*sizeof(Option_t));
-
-     for (i=1; i<nProcs; i++)
-         {
-          SlaveLinks[i-1] = ConnectLink(i,i,&error);
-          if (error)
-             {
-              fprintf(StdOutput,"Master : ConnectLink Error %i\n",error);
-#ifdef __MVS__
-              fclose(StdOutput);
-#endif
-              AbortServer(2);
-             }
-          Options[i-1] = ReceiveOption(SlaveLinks[i-1]);
-         }
-    }
- else
-    {
-     MasterLink = ConnectLink(0,MyProcID,&error);
-     if (error)
-        {
-         fprintf(StdOutput,"Slave(%i) : Error (%i) connecting to Master\n",MyProcID,error);
-#ifdef __MVS__
-         fclose(StdOutput);
-#endif
-         AbortServer(2);
-        }
-     MasterOption = ReceiveOption(MasterLink);
-
-     InterLinks = (LinkCB_t **) SafeMalloc((nProcs-1)*sizeof(LinkCB_t *));
-     for (i=1; i<nProcs; i++)
-         if (i!=MyProcID)
-            {
-             InterLinks[i-1] = ConnectLink(i,1235,&error);
-             if (error)
-                {
-                 fprintf(StdOutput,"Slave(%i) : Error (%i) connecting to Slave(%i)\n",MyProcID,error,i);
-#ifdef __MVS__
-                 fclose(StdOutput);
-#endif
-                 AbortServer(2);
-                }
-            }
-    }
-#else
  #ifdef __MPI2REENT__
  sprintf(CurName,"MPI2REENT-%i",MyProcID);
  #elif !defined(__ROUTER_100__)
@@ -5223,7 +5187,6 @@ int main(void)
      if (MyProcID>1) SHMEMDown = ProcOnNode[MyProcID]==ProcOnNode[MyProcID-1];
      if (MyProcID<nProcs-1) SHMEMUp = ProcOnNode[MyProcID]==ProcOnNode[MyProcID+1];
     }
-#endif
 
 #endif
 
@@ -5233,8 +5196,13 @@ int main(void)
 #else
  nSMP = omp_get_num_procs();
 #endif
+#ifdef __PARALLEL__
  Contexts = (KineticContext *) malloc(nSMP*sizeof(KineticContext));
 #else
+ Contexts = (KineticContext *) malloc(imax(KinetChunkSize,nSMP)*sizeof(KineticContext));
+#endif
+#else
+ KinetChunkSize = 1;
  Contexts = (KineticContext *) malloc(sizeof(KineticContext));
 #endif
 
@@ -5260,32 +5228,25 @@ int main(void)
          AbortServer(100);
         }
 #endif
-#if defined(__IMITATE__) && defined(__MAY_BE_MICROSOFTC__)
-     sscanf(Pscanf(),"%s",CfgFName);
-#else
      if (StdInput==stdin)
         scanf("%s",CfgFName);
      else
         fscanf(StdInput,"%s",CfgFName);
-#endif
      CreateNames(CfgFName);
 
 #ifndef __MVS__
          fprintf(StdOutput,"Do you wish to change Params (1=Yes/0=No) : ");
 #endif
-#if defined(__IMITATE__) && defined(__MAY_BE_MICROSOFTC__)
-         i = 1; ChangeParams = 0;
-#else
          if (StdInput==stdin) {
             char _CRLF[51] = "";
 	    i = scanf("%u",&ChangeParams);
-            gets(_CRLF);
+            fgets(_CRLF, 50, stdin);
 	 } else {
             char _CRLF[51] = "";
             i = fscanf(StdInput,"%u",&ChangeParams);
             fgets(_CRLF, 50, StdInput);
          }
-#endif
+
          if (i < 1) {
             fprintf(StdOutput,"no input data\n");
 #ifdef __MVS__
@@ -5302,12 +5263,16 @@ int main(void)
 #endif
          AbortServer(-1);
         }
-     else
-        if (NReact)
-           {
-            ReTranslate();
-            AllocateKineticBySubsts();
-           }
+	 else {
+		 KGlobal.NSubst = NSubst;
+		 KGlobal.NReact = NReact;
+		 KGlobal.NASubst = NASubst = 0;
+		 if (NReact)
+		 {
+			 ReTranslate(&KGlobal);
+			 NASubst = KGlobal.NASubst;
+		 }
+	 }
      if (FastTAU>0.0 && FastTAU<TAU) FastTAUDivider = (int) (TAU/FastTAU);
      TAU0 = TAU;
      for (i=0; i<NumPhases; i++)
@@ -5316,7 +5281,7 @@ int main(void)
           if (PhaseVars[i].Source[0])
              {
               for (x=0; x<NSubst && PhaseLinks[i]<0; x++)
-                  if (strcmp(Names[x],PhaseVars[i].Source)==0)
+                  if (strcmp(KGlobal.Names[x],PhaseVars[i].Source)==0)
                      PhaseLinks[i] = x;
               if (PhaseLinks[i]<0)
                  {
@@ -5332,7 +5297,7 @@ int main(void)
          {
           SLinks[i] = MaxActSubst;
           for (x=0; x<NSubst && SLinks[i]==MaxActSubst; x++)
-              if (strcmp(Names[x],SubstRefs[i])==0)
+              if (strcmp(KGlobal.Names[x],SubstRefs[i])==0)
                  SLinks[i] = x;
           if (SLinks[i]==MaxActSubst)
              {
@@ -5444,19 +5409,19 @@ int main(void)
           SendSlave(i-1,(byte *) &ModelAngle,sizeof(ModelAngle));
           if (NSubst)
              {
-              SendSlave(i-1,(byte *) Uw,NSubst*sizeof(double));
+              SendSlave(i-1,(byte *) KGlobal.Uw,NSubst*sizeof(float));
               SendSlave(i-1,(byte *) PhaseLinks,NumPhases*sizeof(int));
               SendSlave(i-1,(byte *) SLinks,MaxActSubst*sizeof(char));
              }
           if (NReact)
              {
               SendSlave(i-1,(byte *) &NASubst,sizeof(NASubst));
-              SendSlave(i-1,(byte *) TranMap,NASubst*sizeof(int));
+              SendSlave(i-1,(byte *) KGlobal.TranMap,NASubst*sizeof(int));
               SendSlave(i-1,(byte *) &UseGear,sizeof(UseGear));
-              SendSlave(i-1,(byte *) EA,NReact*sizeof(double));
-              SendSlave(i-1,(byte *) _A,NReact*sizeof(double));
-              SendSlave(i-1,(byte *) Tn,NReact*sizeof(double));
-              SendSlave(i-1,(byte *) LR,NReact*sizeof(Reaction));
+              SendSlave(i-1,(byte *) KGlobal.EA,NReact*sizeof(float));
+              SendSlave(i-1,(byte *) KGlobal._A,NReact*sizeof(float));
+              SendSlave(i-1,(byte *) KGlobal.Tn,NReact*sizeof(float));
+              SendSlave(i-1,(byte *) KGlobal.LR,NReact*sizeof(Reaction));
              }
          }
      DebugPrintf(DEBUG_FILE,"Base information sended\n");
@@ -5481,7 +5446,9 @@ int main(void)
      RecvMaster((byte *) &CheckTau,sizeof(CheckTau));
      RecvMaster((byte *) &Eps,sizeof(Eps));
      RecvMaster((byte *) &NSubst,sizeof(NSubst));
+	 KGlobal.NSubst = NSubst;
      RecvMaster((byte *) &NReact,sizeof(NReact));
+	 KGlobal.NReact = NReact;
      RecvMaster((byte *) ModelDate,MaxMDLength*sizeof(char));
      RecvMaster((byte *) &ModelGMTHour,sizeof(ModelGMTHour));
      RecvMaster((byte *) &ModelAltitude,sizeof(ModelAltitude));
@@ -5489,21 +5456,21 @@ int main(void)
      RecvMaster((byte *) &ModelAngle,sizeof(ModelAngle));
      if (NSubst)
         {
-         RecvMaster((byte *) Uw,NSubst*sizeof(double));
+         RecvMaster((byte *) KGlobal.Uw,NSubst*sizeof(float));
          RecvMaster((byte *) PhaseLinks,NumPhases*sizeof(int));
          RecvMaster((byte *) SLinks,MaxActSubst*sizeof(char));
         }
      if (NReact)
         {
-         AllocateKineticByReactions();
+		 memset(KGlobal.Activity,0,sizeof(KGlobal.Activity));;
          RecvMaster((byte *) &NASubst,sizeof(NASubst));
-         RecvMaster((byte *) TranMap,NASubst*sizeof(int));
-         AllocateKineticBySubsts();
+		 KGlobal.NASubst = NASubst;
+         RecvMaster((byte *) KGlobal.TranMap,NASubst*sizeof(int));
          RecvMaster((byte *) &UseGear,sizeof(UseGear));
-         RecvMaster((byte *) EA,NReact*sizeof(double));
-         RecvMaster((byte *) _A,NReact*sizeof(double));
-         RecvMaster((byte *) Tn,NReact*sizeof(double));
-         RecvMaster((byte *) LR,NReact*sizeof(Reaction));
+         RecvMaster((byte *) KGlobal.EA,NReact*sizeof(float));
+         RecvMaster((byte *) KGlobal._A,NReact*sizeof(float));
+         RecvMaster((byte *) KGlobal.Tn,NReact*sizeof(float));
+         RecvMaster((byte *) KGlobal.LR,NReact*sizeof(Reaction));
         }
      DebugPrintf(DEBUG_FILE,"Base information received\n");
      if (CalculateAll)
@@ -5659,10 +5626,10 @@ int main(void)
  OrgnArea = (unsigned char *) SafeMalloc(NX*NY*NZ*sizeof(char));
 
  for (i=0; i<NSubst; i++)
-     if (Uw[i]==0.0)
+     if (KGlobal.Uw[i]==0.0f)
         MapSubsts[NLightSubst++] = i;
  for (i=0, j=NLightSubst; i<NSubst; i++)
-     if (Uw[i]!=0.0)
+     if (KGlobal.Uw[i]!=0.0f)
         MapSubsts[j++] = i;
 
 #ifdef __PARALLEL__
@@ -5717,6 +5684,62 @@ int main(void)
         }
 
      CMap = NSubst==0 ? NULL : ReadMap(NSubst,-1,CfgFName,".c",&CVals,&SubstValNum);
+
+#ifndef __PARALLEL__
+     NKinets = 0;
+     if (CMap)
+        for (Ptr = 0; Ptr < NX*NY*NZ; Ptr++)
+       	    if (CMap[Ptr]==Zero)
+               NKinets++;
+     Traces = (TraceTypeHost *)malloc(NKinets*sizeof(TraceTypeHost));
+     NKinets = 0;
+     if (CMap)
+        for (Ptr = 0; Ptr < NX*NY*NZ; Ptr++)
+            if (CMap[Ptr]==Zero) {
+                 int counter;
+
+    		 Traces[NKinets].Tr = (unsigned short *) malloc(sizeof(TraceType));
+    		 Traces[NKinets].Tr1 = (unsigned short *) malloc(sizeof(TraceType));
+    		 Traces[NKinets].Tr2 = (unsigned short *) malloc(sizeof(TraceType));
+    		 Traces[NKinets].Tr3 = (unsigned short *) malloc(sizeof(TraceType));
+    		 memset(Traces[NKinets].Tr, 0, sizeof(TraceType));
+    		 memset(Traces[NKinets].Tr1, 0, sizeof(TraceType));
+    		 memset(Traces[NKinets].Tr2, 0, sizeof(TraceType));
+    		 memset(Traces[NKinets].Tr3, 0, sizeof(TraceType));
+    		 Traces[NKinets].KinetTraceQ1 = (float *) malloc(markZ99*sizeof(float));
+    		 Traces[NKinets].KinetTraceW1 = (float *) malloc(markZ99*sizeof(float));
+    		 Traces[NKinets].KinetTraceQ2 = (float *) malloc(markZ99*sizeof(float));
+    		 Traces[NKinets].KinetTraceW2 = (float *) malloc(markZ99*sizeof(float));
+    		 Traces[NKinets].KinetTraceQ3 = (float *) malloc(markZ99*sizeof(float));
+    		 Traces[NKinets].KinetTraceW3 = (float *) malloc(markZ99*sizeof(float));
+    		 Traces[NKinets].Prognosed0 = (unsigned short *) malloc(markZ99*sizeof(unsigned short));
+    		 Traces[NKinets].Prognosed1 = (unsigned short *) malloc(markZ99*sizeof(unsigned short));
+    		 Traces[NKinets].Prognosed2 = (unsigned short *) malloc(markZ99*sizeof(unsigned short));
+                 for (counter = 0; counter < HistorySize; counter++) {
+    		 	Traces[NKinets].Winners[counter] = (signed char *) malloc(markZ99*sizeof(signed char));
+    		 	Traces[NKinets].Besters[counter] = (signed char *) malloc(markZ99*sizeof(signed char));
+			Traces[NKinets].Timings[counter] = 1.0f;
+			memset(Traces[NKinets].Winners[counter], 0, markZ99*sizeof(signed char));
+			memset(Traces[NKinets].Besters[counter], 0, markZ99*sizeof(signed char));
+		 }
+                 for (counter = 0; counter < markZ99; counter++) {
+                     Traces[NKinets].KinetTraceW1[counter] = 0.0;
+                     Traces[NKinets].KinetTraceQ1[counter]  = 1.0;
+                     Traces[NKinets].KinetTraceW2[counter] = 0.0;
+                     Traces[NKinets].KinetTraceQ2[counter]  = 1.0;
+                     Traces[NKinets].KinetTraceW3[counter] = 0.0;
+                     Traces[NKinets].KinetTraceQ3[counter]  = 1.0;
+                     Traces[NKinets].Prognosed0[counter] = 1;
+                     Traces[NKinets].Prognosed1[counter] = 1;
+                     Traces[NKinets].Prognosed2[counter] = 1;
+                 }
+                 Traces[NKinets].KinetTraceW = KGlobal.KinetTraceW;
+                 Traces[NKinets].KinetTraceWOrder = KGlobal.KinetTraceWOrder;
+                 Traces[NKinets].Iters = 1;
+    		 Traces[NKinets++].tag = Ptr;
+            }
+#endif
+
 #ifdef __PARALLEL__
  /* Работаем ТОЛЬКО в случае, если в верхней и нижней границах нет "щелей" */
      for (y=0, Ptr=0; y<NY; y++)
@@ -5939,16 +5962,9 @@ int main(void)
         RecvMaster((byte *) &HYreg, sizeof(HYreg));
         RecvMaster((byte *) &HZreg, sizeof(HZreg));
         DebugPrintf(DEBUG_FILE,"Main experiment data received\n");
-#if defined(__IMITATE__) || defined(__EPX__)
-        /* Устанавливаем подтопологию "труба" */
-        if (UpExchange)
-           NextLink = CheckedConnectSlave(MyProcID,MyProcID+1);
-        if (DownExchange)
-           PrevLink = CheckedConnectSlave(MyProcID,MyProcID-1);
-#else
+
         SHMEMUp   = SHMEMUp && UseSHMEM;
         SHMEMDown = SHMEMDown && UseSHMEM;
-#endif
        }
    }
 
@@ -6119,14 +6135,11 @@ int main(void)
 #ifndef __MVS__
          fprintf(StdOutput,"Input number of iterations : ");
 #endif
-#if defined(__IMITATE__) && defined(__MAY_BE_MICROSOFTC__)
-         i = sscanf(Pscanf(),_intScanf,&maxtakt);
-#else
          if (StdInput==stdin)
 	    i = scanf(_intScanf,&maxtakt);
 	 else
             i = fscanf(StdInput,_intScanf,&maxtakt);
-#endif
+
          if (i < 1) {
             fprintf(StdOutput,"no input data\n");
 #ifdef __MVS__
@@ -6138,14 +6151,11 @@ int main(void)
 #ifndef __MVS__
             fprintf(StdOutput,"Input end time : ");
 #endif
-#if defined(__IMITATE__) && defined(__MAY_BE_MICROSOFTC__)
-            i = sscanf(Pscanf(),_doubleScanf,&EndTime);
-#else
             if (StdInput==stdin)
 	       i = scanf(_doubleScanf,&EndTime);
 	    else
                i = fscanf(StdInput,_doubleScanf,&EndTime);
-#endif
+
             if (i < 1) {
                fprintf(StdOutput,"no input data\n");
 #ifdef __MVS__
@@ -6157,14 +6167,11 @@ int main(void)
 #ifndef __MVS__
          fprintf(StdOutput,"Input number of iterations in 1 cadre : ");
 #endif
-#if defined(__IMITATE__) && defined(__MAY_BE_MICROSOFTC__)
-         i = sscanf(Pscanf(),"%u",&Quant);
-#else
          if (StdInput==stdin)
 	    i = scanf("%u",&Quant);
 	 else
             i = fscanf(StdInput,"%u",&Quant);
-#endif
+
          if (i < 1) {
             fprintf(StdOutput,"no input data\n");
 #ifdef __MVS__
@@ -6174,6 +6181,60 @@ int main(void)
          }
          for (i=0; i<NumEqs; i++)
              InitBoardF(VDefs[i].SubClass,Vars.Name[i], Maps[i].Map, Maps[i].Vals, VDefs[i]._Zero);
+         /* Установление кинетики, если нужно */ /* !!! */
+         if (NReact && SetSteadyKinetics) {
+            KineticContext CC = { 0 };
+            float TimeQuant = TAU;
+            float avr_dc = 0.0f;
+
+            if (PhaseVars[CarrierPhase]._T>=0) {
+               bool Flag = 0;
+               for (z=0, Ptr=0; !Flag && z<NZ; z++)
+                 for (y=0; !Flag && y<NY; y++)
+                   for (x=0; !Flag && x<NX; x++,Ptr++)
+                       if (!Area[Ptr]) {
+                          SetTk(&CC,Vars.Name[PhaseVars[CarrierPhase]._T][Ptr]);
+                          Flag = 1;
+                       }
+            } else
+               SetTk(&CC,(float)KGlobal.DefaultT);
+            for (i=0; i<NASubst; i++)
+               CC.Conc0[i] = ZeroC[KGlobal.TranMap[i]];
+
+            do {
+                KGlobal.InitH = min(KGlobal.InitH,TimeQuant*0.001f);
+                CC._EndTime = (float)TimeQuant;
+
+                OneTaktKinetic(&KGlobal,&CC,UseGear,Adams_Rozhkov_Method);
+
+                avr_dc = 1000.0f;
+
+                if (CC.Iters >= KGlobal.MaxIterations)
+                   TimeQuant /= 5.0;
+                else if (CC.LossPrecision)
+                   break;
+                else {
+                   avr_dc = 0.0f;
+                   for (i=0; i<NASubst; i++) {
+                       avr_dc += fabsf(CC.Conc1[i] - CC.Conc0[i]);
+                       CC.Conc0[i] = CC.Conc1[i];
+                   }
+                   avr_dc /= NASubst;
+                }
+            } while (TimeQuant > 1E-10 && avr_dc > 1E-6*TimeQuant);
+            if (TimeQuant <= 1E-10) {
+               printf("Warning: Kinetics can't converge!\n");
+               fprintf(StdOutput,"Warning: Kinetics can't converge!\n");
+            }
+            for (i=0; i<NASubst; i++)
+               ZeroC[KGlobal.TranMap[i]] = CC.Conc0[i];
+            fprintf(StdOutput,"Steady Concentrations = ");
+            for (i = 0; i < NSubst; i++) {
+                fprintf(StdOutput,"%le ", ZeroC[i]);
+            }
+            fprintf(StdOutput,"\n");
+            fflush(StdOutput);
+         }
          for (x=0;x<NSubst;x++)
              InitBoard(Vars.Dn[x],CMap,&(CVals[x*SubstValNum]),(float)ZeroC[x]);
 #ifndef __PARALLEL__
@@ -6353,6 +6414,9 @@ int main(void)
      FTIME(&_EndTime);
      fprintf(StdOutput,"Number of iterations = %i.\n", takt);
      fprintf(StdOutput,"Model time = %lf sec.\n", ModelTime);
+#ifndef __PARALLEL__
+     fprintf(StdOutput,"Elapsed Kinetic time = %lf sec.\n", KinetTime);
+#endif
      fprintf(StdOutput,"Elapsed time = %lf sec.\n", DIFFTIME(_BeginTime,_EndTime));
      CreateSavFile(&SavFile,maxtakt,Quant,takt,1);
 #ifdef __PARALLEL__
@@ -6390,20 +6454,12 @@ int main(void)
         }
 
 #ifdef __PARALLEL__
-#if defined(__IMITATE__) || defined(__EPX__)
-     free(SlaveLinks);
-     free(Options);
-#endif
      free(FromGrid);
      free(LengthGrid);
      free(ProcessorNames);
     }
-#if defined(__IMITATE__) || defined(__EPX__)
- else
-    free(InterLinks);
-#else
  free(ProcOnNode);
-#endif
+
  free(HBuff);
  if (CheckTau) free(eHBuff);
 #endif
@@ -6496,6 +6552,31 @@ int main(void)
  free(Lmin2);
  free(DIV);
 
+#ifndef __PARALLEL__
+ for (Ptr = 0; Ptr < NKinets; Ptr++) {
+	 int counter;
+
+	 free(Traces[Ptr].Tr);
+	 free(Traces[Ptr].Tr1);
+	 free(Traces[Ptr].Tr2);
+	 free(Traces[Ptr].Tr3);
+	 free(Traces[Ptr].KinetTraceQ1);
+	 free(Traces[Ptr].KinetTraceW1);
+	 free(Traces[Ptr].KinetTraceQ2);
+	 free(Traces[Ptr].KinetTraceW2);
+	 free(Traces[Ptr].KinetTraceQ3);
+	 free(Traces[Ptr].KinetTraceW3);
+	 free(Traces[Ptr].Prognosed0);
+	 free(Traces[Ptr].Prognosed1);
+	 free(Traces[Ptr].Prognosed2);
+         for (counter = 0; counter < HistorySize; counter++) {
+		free(Traces[Ptr].Winners[counter]);
+		free(Traces[Ptr].Besters[counter]);
+	 }
+ }
+ free(Traces);
+#endif
+
 #ifdef __PARALLEL__
  if (MasterFlag || CalculateAll)
     {
@@ -6539,8 +6620,6 @@ int main(void)
 #ifdef __PARALLEL__
     }
 #endif
-
- if (NReact) FreeKinetic();
 
 #ifdef __MPI__
  MPI_Barrier(MPI_COMM_WORLD);
