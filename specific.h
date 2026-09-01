@@ -1,9 +1,9 @@
 #ifndef __SPECIFIC__
 #define __SPECIFIC__
 
-#include "cfgfile.h"
+#include "CFGFILE.H"
 #include "area3d.h"
-#include "kinetic.h"
+#include "KINETIC.H"
 #include "solvers.h"
 
 double UwMainPhase = 0;
