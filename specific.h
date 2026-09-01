@@ -185,7 +185,7 @@ double tAirAsymmetry;
 
 enum {_NumNk0,_NumRok0,_NumSO2k0,_NumUkx0,_NumUky0,_NumUkz0,_NumNk1,_NumRok1,_NumSO2k1,_NumUkx1,_NumUky1,_NumUkz1,_NumNk2,_NumRok2,_NumSO2k2,_NumUkx2,_NumUky2,_NumUkz2,_NumNk3,_NumRok3,_NumSO2k3,_NumUkx3,_NumUky3,_NumUkz3,_NumNk4,_NumRok4,_NumSO2k4,_NumUkx4,_NumUky4,_NumUkz4,_NumNk5,_NumRok5,_NumSO2k5,_NumUkx5,_NumUky5,_NumUkz5,_NumNk6,_NumRok6,_NumSO2k6,_NumUkx6,_NumUky6,_NumUkz6,_NumEt,_NumF0,_NumFIR,_NumFUV,_NumI,_NumIR,_NumIRt,_NumKt,_NumNu,_NumP,_NumT,_NumUV,_NumUx,_NumUy,_NumUz};
 
-#define _NumDn NumEqs /* Вещества */
+#define _NumDn NumEqs /* Р’РµС‰РµСЃС‚РІР° */
 
 int PredictControlVar = _NumNu;
 
@@ -201,9 +201,9 @@ int CarrierPhase = phMainPhase;
 
 typedef struct {
  float  * Name[NumEqs];
- float ** Dn; /* Вещества */
+ float ** Dn; /* Р’РµС‰РµСЃС‚РІР° */
  float  * eName[NumEqs];
- float ** eDn; /* Вещества по явному шагу Эйлера */
+ float ** eDn; /* Р’РµС‰РµСЃС‚РІР° РїРѕ СЏРІРЅРѕРјСѓ С€Р°РіСѓ Р­Р№Р»РµСЂР° */
  int     BoundSize;
  float * Bounds[6];
  float * Parts[3];
@@ -231,7 +231,7 @@ PhaseDsc PhaseVars[NumPhases] = {
 /*!!!!!*/
 #define sign(a) ((a) == 0 ? 0 : (a) < 0 ? -1 : +1)
 
-/* Аналитическое решение */
+/* РђРЅР°Р»РёС‚РёС‡РµСЃРєРѕРµ СЂРµС€РµРЅРёРµ */
 double aGetXY(double D, double RR)
 {
  double D2 = D*D;
@@ -242,7 +242,7 @@ double aGetXY(double D, double RR)
 }
 
 /*!!!!*/
-/* Численное решение */
+/* Р§РёСЃР»РµРЅРЅРѕРµ СЂРµС€РµРЅРёРµ */
 double GetXY(double D, double RR)
 {
 	double dx;
@@ -298,7 +298,7 @@ double GetdU(double g, double RO, double ROK, double Sigma, double Nu, double D,
 	return Result;
 }
 
-/* !!! Оставить в specific НАВСЕГДА, а не в функциях эксперимента */
+/* !!! РћСЃС‚Р°РІРёС‚СЊ РІ specific РќРђР’РЎР•Р“Р”Рђ, Р° РЅРµ РІ С„СѓРЅРєС†РёСЏС… СЌРєСЃРїРµСЂРёРјРµРЅС‚Р° */
 void _GetLU(int NN, int * iRow, double * A, double * LU)
 {
 	int i, j, k;
@@ -344,7 +344,7 @@ void _GetLU(int NN, int * iRow, double * A, double * LU)
 	LU[(iRow[NN - 1] + 1)*NN - 1] = 1.0 / LU[(iRow[NN - 1] + 1)*NN - 1];
 }
 
-/*!!!  Оставить в specific НАВСЕГДА, а не в функциях эксперимента */
+/*!!!  РћСЃС‚Р°РІРёС‚СЊ РІ specific РќРђР’РЎР•Р“Р”Рђ, Р° РЅРµ РІ С„СѓРЅРєС†РёСЏС… СЌРєСЃРїРµСЂРёРјРµРЅС‚Р° */
 void _SolveLU(int NN, int * iRow, double * LU, double * Y, double * X)
 {
 	int i, j, k;
@@ -578,63 +578,63 @@ typedef struct {
 } VarDsc;
 
 VarDsc VDefs[NumEqs] = {
- {"nk",-1,0,NULL,1,1,_ZeroNk,&NuMolNk[0],&KappaNk[0],phDrops0,"Концентрация капель [0]", rsPositive,0},
- {"rok",-1,0,NULL,1,1,_ZeroRok,&NuMolRok[0],&KappaRok[0],phDrops0,"Плотность капель [0]", rsPositive,0},
- {"so2k",-1,0,NULL,1,1,_ZeroSO2k,&NuMolSO2k[0],&KappaSO2k[0],phDrops0,"Концентрация SO2 в каплях [0]", rsPositive,0},
- {"uk",0,0,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[0],&KappaUkx[0],phDrops0,"Скорость капель [0]", rsAny,0},
- {"uk",1,0,DirectSolver,1,0,_ZeroUky,&NuMolUky[0],&KappaUky[0],phDrops0,"Скорость капель [0]", rsAny,0},
- {"uk",2,0,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[0],&KappaUkz[0],phDrops0,"Скорость капель [0]", rsAny,0},
- {"nk",-1,1,NULL,1,1,_ZeroNk,&NuMolNk[1],&KappaNk[1],phDrops1,"Концентрация капель [1]", rsPositive,0},
- {"rok",-1,1,NULL,1,1,_ZeroRok,&NuMolRok[1],&KappaRok[1],phDrops1,"Плотность капель [1]", rsPositive,0},
- {"so2k",-1,1,NULL,1,1,_ZeroSO2k,&NuMolSO2k[1],&KappaSO2k[1],phDrops1,"Концентрация SO2 в каплях [1]", rsPositive,0},
- {"uk",0,1,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[1],&KappaUkx[1],phDrops1,"Скорость капель [1]", rsAny,0},
- {"uk",1,1,DirectSolver,1,0,_ZeroUky,&NuMolUky[1],&KappaUky[1],phDrops1,"Скорость капель [1]", rsAny,0},
- {"uk",2,1,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[1],&KappaUkz[1],phDrops1,"Скорость капель [1]", rsAny,0},
- {"nk",-1,2,NULL,1,1,_ZeroNk,&NuMolNk[2],&KappaNk[2],phDrops2,"Концентрация капель [2]", rsPositive,0},
- {"rok",-1,2,NULL,1,1,_ZeroRok,&NuMolRok[2],&KappaRok[2],phDrops2,"Плотность капель [2]", rsPositive,0},
- {"so2k",-1,2,NULL,1,1,_ZeroSO2k,&NuMolSO2k[2],&KappaSO2k[2],phDrops2,"Концентрация SO2 в каплях [2]", rsPositive,0},
- {"uk",0,2,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[2],&KappaUkx[2],phDrops2,"Скорость капель [2]", rsAny,0},
- {"uk",1,2,DirectSolver,1,0,_ZeroUky,&NuMolUky[2],&KappaUky[2],phDrops2,"Скорость капель [2]", rsAny,0},
- {"uk",2,2,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[2],&KappaUkz[2],phDrops2,"Скорость капель [2]", rsAny,0},
- {"nk",-1,3,NULL,1,1,_ZeroNk,&NuMolNk[3],&KappaNk[3],phDrops3,"Концентрация капель [3]", rsPositive,0},
- {"rok",-1,3,NULL,1,1,_ZeroRok,&NuMolRok[3],&KappaRok[3],phDrops3,"Плотность капель [3]", rsPositive,0},
- {"so2k",-1,3,NULL,1,1,_ZeroSO2k,&NuMolSO2k[3],&KappaSO2k[3],phDrops3,"Концентрация SO2 в каплях [3]", rsPositive,0},
- {"uk",0,3,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[3],&KappaUkx[3],phDrops3,"Скорость капель [3]", rsAny,0},
- {"uk",1,3,DirectSolver,1,0,_ZeroUky,&NuMolUky[3],&KappaUky[3],phDrops3,"Скорость капель [3]", rsAny,0},
- {"uk",2,3,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[3],&KappaUkz[3],phDrops3,"Скорость капель [3]", rsAny,0},
- {"nk",-1,4,NULL,1,1,_ZeroNk,&NuMolNk[4],&KappaNk[4],phDrops4,"Концентрация капель [4]", rsPositive,0},
- {"rok",-1,4,NULL,1,1,_ZeroRok,&NuMolRok[4],&KappaRok[4],phDrops4,"Плотность капель [4]", rsPositive,0},
- {"so2k",-1,4,NULL,1,1,_ZeroSO2k,&NuMolSO2k[4],&KappaSO2k[4],phDrops4,"Концентрация SO2 в каплях [4]", rsPositive,0},
- {"uk",0,4,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[4],&KappaUkx[4],phDrops4,"Скорость капель [4]", rsAny,0},
- {"uk",1,4,DirectSolver,1,0,_ZeroUky,&NuMolUky[4],&KappaUky[4],phDrops4,"Скорость капель [4]", rsAny,0},
- {"uk",2,4,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[4],&KappaUkz[4],phDrops4,"Скорость капель [4]", rsAny,0},
- {"nk",-1,5,NULL,1,1,_ZeroNk,&NuMolNk[5],&KappaNk[5],phDrops5,"Концентрация капель [5]", rsPositive,0},
- {"rok",-1,5,NULL,1,1,_ZeroRok,&NuMolRok[5],&KappaRok[5],phDrops5,"Плотность капель [5]", rsPositive,0},
- {"so2k",-1,5,NULL,1,1,_ZeroSO2k,&NuMolSO2k[5],&KappaSO2k[5],phDrops5,"Концентрация SO2 в каплях [5]", rsPositive,0},
- {"uk",0,5,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[5],&KappaUkx[5],phDrops5,"Скорость капель [5]", rsAny,0},
- {"uk",1,5,DirectSolver,1,0,_ZeroUky,&NuMolUky[5],&KappaUky[5],phDrops5,"Скорость капель [5]", rsAny,0},
- {"uk",2,5,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[5],&KappaUkz[5],phDrops5,"Скорость капель [5]", rsAny,0},
- {"nk",-1,6,NULL,1,1,_ZeroNk,&NuMolNk[6],&KappaNk[6],phDrops6,"Концентрация капель [6]", rsPositive,0},
- {"rok",-1,6,NULL,1,1,_ZeroRok,&NuMolRok[6],&KappaRok[6],phDrops6,"Плотность капель [6]", rsPositive,0},
- {"so2k",-1,6,NULL,1,1,_ZeroSO2k,&NuMolSO2k[6],&KappaSO2k[6],phDrops6,"Концентрация SO2 в каплях [6]", rsPositive,0},
- {"uk",0,6,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[6],&KappaUkx[6],phDrops6,"Скорость капель [6]", rsAny,0},
- {"uk",1,6,DirectSolver,1,0,_ZeroUky,&NuMolUky[6],&KappaUky[6],phDrops6,"Скорость капель [6]", rsAny,0},
- {"uk",2,6,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[6],&KappaUkz[6],phDrops6,"Скорость капель [6]", rsAny,0},
- {"e",-1,-1,NULL,1,0,_ZeroEt,&D,&KappaEt,phMainPhase,"Скорость диссипации", rsPositive,0},
- {"f0",-1,-1,SolarSolver,1,1,_ZeroF0,&NuMolF0,&KappaF0,phMainPhase,"Интенсивность VIS-прямого излучения", rsAny,0},
- {"fir",-1,-1,SolarSolver,1,1,_ZeroFIR,&NuMolFIR,&KappaFIR,phMainPhase,"Интенсивность IR-прямого излучения", rsAny,0},
- {"fuv",-1,-1,SolarSolver,1,1,_ZeroFUV,&NuMolFUV,&KappaFUV,phMainPhase,"Интенсивность UV-прямого излучения", rsAny,0},
- /*!!!rsPositive*/{ "i", -1, -1, PoissonSolver, 1, 1, _ZeroI, &NuMolI, &KappaI, phMainPhase, "Интенсивность VIS-диффузного излучения", rsPositive, 0 },
- /*!!!rsPositive*/{"ir",-1,-1,PoissonSolver,1,1,_ZeroIR,&NuMolIR,&KappaIR,phMainPhase,"Интенсивность IR-диффузного излучения", rsPositive,0},
- /*!!!rsPositive*/{ "irt", -1, -1, PoissonSolver, 1, 1, _ZeroIRt, &NuMolIRt, &KappaIRt, phMainPhase, "Интенсивность IR-теплового излучения", rsPositive, 0 },
- {"k",-1,-1,NULL,1,0,_ZeroKt,&D,&KappaKt,phMainPhase,"Энергия пульсаций", rsPositive,0},
- {"nu",-1,-1,DirectSolver,1,0,_ZeroNu,&NuMolNu,&KappaNu,phMainPhase,"Турбулентная вязкость", rsPositive,0},
- {"p",-1,-1,PoissonSolver,1,0,_ZeroP,&NuMolP,&KappaP,phMainPhase,"Давление", rsAny,0},
- {"t",-1,-1,NULL,1,0,_ZeroT,&NuMolT,&KappaT,phMainPhase,"Температура (градусы Цельсия)", rsAny,0},
- /*!!!rsPositive*/{ "uv", -1, -1, PoissonSolver, 1, 1, _ZeroUV, &NuMolUV, &KappaUV, phMainPhase, "Интенсивность UV-диффузного излучения", rsPositive, 0 },
- {"v",0,-1,NULL,1,0,_ZeroUx,&D,&KappaUx,phMainPhase,"Скорость", rsAny,0},
- {"v",1,-1,NULL,1,0,_ZeroUy,&D,&KappaUy,phMainPhase,"Скорость", rsAny,0},
- {"v",2,-1,NULL,1,0,_ZeroUz,&D,&KappaUz,phMainPhase,"Скорость", rsAny,0}
+ {"nk",-1,0,NULL,1,1,_ZeroNk,&NuMolNk[0],&KappaNk[0],phDrops0,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ РєР°РїРµР»СЊ [0]", rsPositive,0},
+ {"rok",-1,0,NULL,1,1,_ZeroRok,&NuMolRok[0],&KappaRok[0],phDrops0,"РџР»РѕС‚РЅРѕСЃС‚СЊ РєР°РїРµР»СЊ [0]", rsPositive,0},
+ {"so2k",-1,0,NULL,1,1,_ZeroSO2k,&NuMolSO2k[0],&KappaSO2k[0],phDrops0,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ SO2 РІ РєР°РїР»СЏС… [0]", rsPositive,0},
+ {"uk",0,0,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[0],&KappaUkx[0],phDrops0,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [0]", rsAny,0},
+ {"uk",1,0,DirectSolver,1,0,_ZeroUky,&NuMolUky[0],&KappaUky[0],phDrops0,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [0]", rsAny,0},
+ {"uk",2,0,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[0],&KappaUkz[0],phDrops0,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [0]", rsAny,0},
+ {"nk",-1,1,NULL,1,1,_ZeroNk,&NuMolNk[1],&KappaNk[1],phDrops1,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ РєР°РїРµР»СЊ [1]", rsPositive,0},
+ {"rok",-1,1,NULL,1,1,_ZeroRok,&NuMolRok[1],&KappaRok[1],phDrops1,"РџР»РѕС‚РЅРѕСЃС‚СЊ РєР°РїРµР»СЊ [1]", rsPositive,0},
+ {"so2k",-1,1,NULL,1,1,_ZeroSO2k,&NuMolSO2k[1],&KappaSO2k[1],phDrops1,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ SO2 РІ РєР°РїР»СЏС… [1]", rsPositive,0},
+ {"uk",0,1,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[1],&KappaUkx[1],phDrops1,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [1]", rsAny,0},
+ {"uk",1,1,DirectSolver,1,0,_ZeroUky,&NuMolUky[1],&KappaUky[1],phDrops1,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [1]", rsAny,0},
+ {"uk",2,1,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[1],&KappaUkz[1],phDrops1,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [1]", rsAny,0},
+ {"nk",-1,2,NULL,1,1,_ZeroNk,&NuMolNk[2],&KappaNk[2],phDrops2,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ РєР°РїРµР»СЊ [2]", rsPositive,0},
+ {"rok",-1,2,NULL,1,1,_ZeroRok,&NuMolRok[2],&KappaRok[2],phDrops2,"РџР»РѕС‚РЅРѕСЃС‚СЊ РєР°РїРµР»СЊ [2]", rsPositive,0},
+ {"so2k",-1,2,NULL,1,1,_ZeroSO2k,&NuMolSO2k[2],&KappaSO2k[2],phDrops2,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ SO2 РІ РєР°РїР»СЏС… [2]", rsPositive,0},
+ {"uk",0,2,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[2],&KappaUkx[2],phDrops2,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [2]", rsAny,0},
+ {"uk",1,2,DirectSolver,1,0,_ZeroUky,&NuMolUky[2],&KappaUky[2],phDrops2,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [2]", rsAny,0},
+ {"uk",2,2,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[2],&KappaUkz[2],phDrops2,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [2]", rsAny,0},
+ {"nk",-1,3,NULL,1,1,_ZeroNk,&NuMolNk[3],&KappaNk[3],phDrops3,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ РєР°РїРµР»СЊ [3]", rsPositive,0},
+ {"rok",-1,3,NULL,1,1,_ZeroRok,&NuMolRok[3],&KappaRok[3],phDrops3,"РџР»РѕС‚РЅРѕСЃС‚СЊ РєР°РїРµР»СЊ [3]", rsPositive,0},
+ {"so2k",-1,3,NULL,1,1,_ZeroSO2k,&NuMolSO2k[3],&KappaSO2k[3],phDrops3,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ SO2 РІ РєР°РїР»СЏС… [3]", rsPositive,0},
+ {"uk",0,3,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[3],&KappaUkx[3],phDrops3,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [3]", rsAny,0},
+ {"uk",1,3,DirectSolver,1,0,_ZeroUky,&NuMolUky[3],&KappaUky[3],phDrops3,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [3]", rsAny,0},
+ {"uk",2,3,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[3],&KappaUkz[3],phDrops3,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [3]", rsAny,0},
+ {"nk",-1,4,NULL,1,1,_ZeroNk,&NuMolNk[4],&KappaNk[4],phDrops4,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ РєР°РїРµР»СЊ [4]", rsPositive,0},
+ {"rok",-1,4,NULL,1,1,_ZeroRok,&NuMolRok[4],&KappaRok[4],phDrops4,"РџР»РѕС‚РЅРѕСЃС‚СЊ РєР°РїРµР»СЊ [4]", rsPositive,0},
+ {"so2k",-1,4,NULL,1,1,_ZeroSO2k,&NuMolSO2k[4],&KappaSO2k[4],phDrops4,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ SO2 РІ РєР°РїР»СЏС… [4]", rsPositive,0},
+ {"uk",0,4,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[4],&KappaUkx[4],phDrops4,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [4]", rsAny,0},
+ {"uk",1,4,DirectSolver,1,0,_ZeroUky,&NuMolUky[4],&KappaUky[4],phDrops4,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [4]", rsAny,0},
+ {"uk",2,4,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[4],&KappaUkz[4],phDrops4,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [4]", rsAny,0},
+ {"nk",-1,5,NULL,1,1,_ZeroNk,&NuMolNk[5],&KappaNk[5],phDrops5,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ РєР°РїРµР»СЊ [5]", rsPositive,0},
+ {"rok",-1,5,NULL,1,1,_ZeroRok,&NuMolRok[5],&KappaRok[5],phDrops5,"РџР»РѕС‚РЅРѕСЃС‚СЊ РєР°РїРµР»СЊ [5]", rsPositive,0},
+ {"so2k",-1,5,NULL,1,1,_ZeroSO2k,&NuMolSO2k[5],&KappaSO2k[5],phDrops5,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ SO2 РІ РєР°РїР»СЏС… [5]", rsPositive,0},
+ {"uk",0,5,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[5],&KappaUkx[5],phDrops5,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [5]", rsAny,0},
+ {"uk",1,5,DirectSolver,1,0,_ZeroUky,&NuMolUky[5],&KappaUky[5],phDrops5,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [5]", rsAny,0},
+ {"uk",2,5,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[5],&KappaUkz[5],phDrops5,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [5]", rsAny,0},
+ {"nk",-1,6,NULL,1,1,_ZeroNk,&NuMolNk[6],&KappaNk[6],phDrops6,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ РєР°РїРµР»СЊ [6]", rsPositive,0},
+ {"rok",-1,6,NULL,1,1,_ZeroRok,&NuMolRok[6],&KappaRok[6],phDrops6,"РџР»РѕС‚РЅРѕСЃС‚СЊ РєР°РїРµР»СЊ [6]", rsPositive,0},
+ {"so2k",-1,6,NULL,1,1,_ZeroSO2k,&NuMolSO2k[6],&KappaSO2k[6],phDrops6,"РљРѕРЅС†РµРЅС‚СЂР°С†РёСЏ SO2 РІ РєР°РїР»СЏС… [6]", rsPositive,0},
+ {"uk",0,6,DirectSolver,1,0,_ZeroUkx,&NuMolUkx[6],&KappaUkx[6],phDrops6,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [6]", rsAny,0},
+ {"uk",1,6,DirectSolver,1,0,_ZeroUky,&NuMolUky[6],&KappaUky[6],phDrops6,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [6]", rsAny,0},
+ {"uk",2,6,DirectSolver,1,0,_ZeroUkz,&NuMolUkz[6],&KappaUkz[6],phDrops6,"РЎРєРѕСЂРѕСЃС‚СЊ РєР°РїРµР»СЊ [6]", rsAny,0},
+ {"e",-1,-1,NULL,1,0,_ZeroEt,&D,&KappaEt,phMainPhase,"РЎРєРѕСЂРѕСЃС‚СЊ РґРёСЃСЃРёРїР°С†РёРё", rsPositive,0},
+ {"f0",-1,-1,SolarSolver,1,1,_ZeroF0,&NuMolF0,&KappaF0,phMainPhase,"РРЅС‚РµРЅСЃРёРІРЅРѕСЃС‚СЊ VIS-РїСЂСЏРјРѕРіРѕ РёР·Р»СѓС‡РµРЅРёСЏ", rsAny,0},
+ {"fir",-1,-1,SolarSolver,1,1,_ZeroFIR,&NuMolFIR,&KappaFIR,phMainPhase,"РРЅС‚РµРЅСЃРёРІРЅРѕСЃС‚СЊ IR-РїСЂСЏРјРѕРіРѕ РёР·Р»СѓС‡РµРЅРёСЏ", rsAny,0},
+ {"fuv",-1,-1,SolarSolver,1,1,_ZeroFUV,&NuMolFUV,&KappaFUV,phMainPhase,"РРЅС‚РµРЅСЃРёРІРЅРѕСЃС‚СЊ UV-РїСЂСЏРјРѕРіРѕ РёР·Р»СѓС‡РµРЅРёСЏ", rsAny,0},
+ /*!!!rsPositive*/{ "i", -1, -1, PoissonSolver, 1, 1, _ZeroI, &NuMolI, &KappaI, phMainPhase, "РРЅС‚РµРЅСЃРёРІРЅРѕСЃС‚СЊ VIS-РґРёС„С„СѓР·РЅРѕРіРѕ РёР·Р»СѓС‡РµРЅРёСЏ", rsPositive, 0 },
+ /*!!!rsPositive*/{"ir",-1,-1,PoissonSolver,1,1,_ZeroIR,&NuMolIR,&KappaIR,phMainPhase,"РРЅС‚РµРЅСЃРёРІРЅРѕСЃС‚СЊ IR-РґРёС„С„СѓР·РЅРѕРіРѕ РёР·Р»СѓС‡РµРЅРёСЏ", rsPositive,0},
+ /*!!!rsPositive*/{ "irt", -1, -1, PoissonSolver, 1, 1, _ZeroIRt, &NuMolIRt, &KappaIRt, phMainPhase, "РРЅС‚РµРЅСЃРёРІРЅРѕСЃС‚СЊ IR-С‚РµРїР»РѕРІРѕРіРѕ РёР·Р»СѓС‡РµРЅРёСЏ", rsPositive, 0 },
+ {"k",-1,-1,NULL,1,0,_ZeroKt,&D,&KappaKt,phMainPhase,"Р­РЅРµСЂРіРёСЏ РїСѓР»СЊСЃР°С†РёР№", rsPositive,0},
+ {"nu",-1,-1,DirectSolver,1,0,_ZeroNu,&NuMolNu,&KappaNu,phMainPhase,"РўСѓСЂР±СѓР»РµРЅС‚РЅР°СЏ РІСЏР·РєРѕСЃС‚СЊ", rsPositive,0},
+ {"p",-1,-1,PoissonSolver,1,0,_ZeroP,&NuMolP,&KappaP,phMainPhase,"Р”Р°РІР»РµРЅРёРµ", rsAny,0},
+ {"t",-1,-1,NULL,1,0,_ZeroT,&NuMolT,&KappaT,phMainPhase,"РўРµРјРїРµСЂР°С‚СѓСЂР° (РіСЂР°РґСѓСЃС‹ Р¦РµР»СЊСЃРёСЏ)", rsAny,0},
+ /*!!!rsPositive*/{ "uv", -1, -1, PoissonSolver, 1, 1, _ZeroUV, &NuMolUV, &KappaUV, phMainPhase, "РРЅС‚РµРЅСЃРёРІРЅРѕСЃС‚СЊ UV-РґРёС„С„СѓР·РЅРѕРіРѕ РёР·Р»СѓС‡РµРЅРёСЏ", rsPositive, 0 },
+ {"v",0,-1,NULL,1,0,_ZeroUx,&D,&KappaUx,phMainPhase,"РЎРєРѕСЂРѕСЃС‚СЊ", rsAny,0},
+ {"v",1,-1,NULL,1,0,_ZeroUy,&D,&KappaUy,phMainPhase,"РЎРєРѕСЂРѕСЃС‚СЊ", rsAny,0},
+ {"v",2,-1,NULL,1,0,_ZeroUz,&D,&KappaUz,phMainPhase,"РЎРєРѕСЂРѕСЃС‚СЊ", rsAny,0}
 };
 
 int PhaseLinks[NumPhases];

@@ -1,98 +1,99 @@
-#pragma plan vectorized
+// ./Reenterable -D__UNIX__ -D__OPENMP__ -followdefines eko_3d.c reent.cpp
+// g++ -o eko_3d reent.cpp -fopenmp -fgnu-tm -fpermissive -O4 -std=c++11 -lm -lpthread -lOpenCL
 
-/* При работе с транслятором MPI => Planning C в Windows рекомендуется: */
-/* mpi2reent.exe <num_procs> -followdefines -D_WIN32 -D_MSC_VER eko_3d.c <outfile.cpp> */
+#include <locale.h>
+
+/* ╨Я╤А╨╕ ╤А╨░╨▒╨╛╤В╨╡ ╤Б ╤В╤А╨░╨╜╤Б╨╗╤П╤В╨╛╤А╨╛╨╝ MPI => Planning C ╨▓ Windows ╤А╨╡╨║╨╛╨╝╨╡╨╜╨┤╤Г╨╡╤В╤Б╤П: */
+/* mpi2reent.exe <num_procs> -followdefines -D_WIN32 eko_3d.c <outfile.cpp> */
 /* Reenterable <outfile.cpp> <translated.cpp> */
-/* Далее компилировать <translated.cpp> */
-/* При работе с транслятором MPI => Planning C в UNIX/LINUX рекомендуется: */
+/* ╨Ф╨░╨╗╨╡╨╡ ╨║╨╛╨╝╨┐╨╕╨╗╨╕╤А╨╛╨▓╨░╤В╤М <translated.cpp> */
+/* ╨Я╤А╨╕ ╤А╨░╨▒╨╛╤В╨╡ ╤Б ╤В╤А╨░╨╜╤Б╨╗╤П╤В╨╛╤А╨╛╨╝ MPI => Planning C ╨▓ UNIX/LINUX ╤А╨╡╨║╨╛╨╝╨╡╨╜╨┤╤Г╨╡╤В╤Б╤П: */
 /* mpi2reent.exe <num_procs> -followdefines -D__UNIX__ eko_3d.c <outfile.cpp> */
 /* Reenterable <outfile.cpp> <translated.cpp> */
-/* Далее компилировать <translated.cpp> */
+/* ╨Ф╨░╨╗╨╡╨╡ ╨║╨╛╨╝╨┐╨╕╨╗╨╕╤А╨╛╨▓╨░╤В╤М <translated.cpp> */
 
-/* Преобразование в C++ без MPI под Linux: Reenterable.exe -followdefines -nosourcelines -D__UNIX__ -D__OPENMP__ -D__MVS__ eko_3d.c reent1.cpp */
-/* Преобразование в C++ без MPI под Windows: Reenterable.exe -followdefines -nosourcelines -D_MSC_VER -D_WIN32 -D__OPENMP__ -D__MVS__ eko_3d.c reent1.cpp */
+/* ╨Я╤А╨╡╨╛╨▒╤А╨░╨╖╨╛╨▓╨░╨╜╨╕╨╡ ╨▓ C++ ╨▒╨╡╨╖ MPI ╨┐╨╛╨┤ Linux: Reenterable.exe -followdefines -nosourcelines -D__UNIX__ -D__OPENMP__ -D__MVS__ eko_3d.c reent1.cpp */
+/* ╨Я╤А╨╡╨╛╨▒╤А╨░╨╖╨╛╨▓╨░╨╜╨╕╨╡ ╨▓ C++ ╨▒╨╡╨╖ MPI ╨┐╨╛╨┤ Windows: Reenterable.exe -followdefines -nosourcelines -D_WIN32 -D_MSC_VER -D__OPENMP__ -D__MVS__ eko_3d.c reent1.cpp */
 
 /* (C) 1997-2015 V.V.Pekunov */
-/* Программа моделирования (3D модель) с турбулентностью */
-/* Последний вариант -- с дополнительной балансировкой по К-Я */
+/* ╨Я╤А╨╛╨│╤А╨░╨╝╨╝╨░ ╨╝╨╛╨┤╨╡╨╗╨╕╤А╨╛╨▓╨░╨╜╨╕╤П (3D ╨╝╨╛╨┤╨╡╨╗╤М) ╤Б ╤В╤Г╤А╨▒╤Г╨╗╨╡╨╜╤В╨╜╨╛╤Б╤В╤М╤О */
+/* ╨Я╨╛╤Б╨╗╨╡╨┤╨╜╨╕╨╣ ╨▓╨░╤А╨╕╨░╨╜╤В -- ╤Б ╨┤╨╛╨┐╨╛╨╗╨╜╨╕╤В╨╡╨╗╤М╨╜╨╛╨╣ ╨▒╨░╨╗╨░╨╜╤Б╨╕╤А╨╛╨▓╨║╨╛╨╣ ╨┐╨╛ ╨Ъ-╨п */
 /* F(T) = kT*T */
-/* Учитывается распространение пыли. */
-/* Экстраполяция значений на стыках. Подстройка коэффициентов регрессии. */
-/* Специфические моменты вынесены в отдельный файл specific.h */
-/* Поддерживается подключение дополнительных скалярных переменных с решателями */
-/* -- Июль 2004 -- */
-/* Теперь математическая модель проектируется визуально. */
-/* specific.h генерируется автоматически специальной системой */
-/* -- Июль 2005 -- */
-/* Изменена базовая модель. Переход к системе с векторным потенциалом. */
-/* Теперь архимедова сила F(T) задается производными, исчезла необходимость */
-/*   задавать опорную температуру */
-/* Развит механизм дополнительных решателей. */
-/* Теперь можно задавать ГРАНИЧНЫЕ условия функцией */
-/* Добавлен алгебраический решатель (прямое вычисление) */
-/* Добавлен решатель для уравнений Пуассона (верхняя релаксация с */
-/*   четно-нечетным (шахматным) порядком обхода, с чебышевским */
-/*   ускорением. Оптимальное Theta ищется сканированием (оптимизация) */
-/* Внесена большая неявность -- функция K разбита на две части по Головичеву */
+/* ╨г╤З╨╕╤В╤Л╨▓╨░╨╡╤В╤Б╤П ╤А╨░╤Б╨┐╤А╨╛╤Б╤В╤А╨░╨╜╨╡╨╜╨╕╨╡ ╨┐╤Л╨╗╨╕. */
+/* ╨н╨║╤Б╤В╤А╨░╨┐╨╛╨╗╤П╤Ж╨╕╤П ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╣ ╨╜╨░ ╤Б╤В╤Л╨║╨░╤Е. ╨Я╨╛╨┤╤Б╤В╤А╨╛╨╣╨║╨░ ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨╛╨▓ ╤А╨╡╨│╤А╨╡╤Б╤Б╨╕╨╕. */
+/* ╨б╨┐╨╡╤Ж╨╕╤Д╨╕╤З╨╡╤Б╨║╨╕╨╡ ╨╝╨╛╨╝╨╡╨╜╤В╤Л ╨▓╤Л╨╜╨╡╤Б╨╡╨╜╤Л ╨▓ ╨╛╤В╨┤╨╡╨╗╤М╨╜╤Л╨╣ ╤Д╨░╨╣╨╗ specific.h */
+/* ╨Я╨╛╨┤╨┤╨╡╤А╨╢╨╕╨▓╨░╨╡╤В╤Б╤П ╨┐╨╛╨┤╨║╨╗╤О╤З╨╡╨╜╨╕╨╡ ╨┤╨╛╨┐╨╛╨╗╨╜╨╕╤В╨╡╨╗╤М╨╜╤Л╤Е ╤Б╨║╨░╨╗╤П╤А╨╜╤Л╤Е ╨┐╨╡╤А╨╡╨╝╨╡╨╜╨╜╤Л╤Е ╤Б ╤А╨╡╤И╨░╤В╨╡╨╗╤П╨╝╨╕ */
+/* -- ╨Ш╤О╨╗╤М 2004 -- */
+/* ╨в╨╡╨┐╨╡╤А╤М ╨╝╨░╤В╨╡╨╝╨░╤В╨╕╤З╨╡╤Б╨║╨░╤П ╨╝╨╛╨┤╨╡╨╗╤М ╨┐╤А╨╛╨╡╨║╤В╨╕╤А╤Г╨╡╤В╤Б╤П ╨▓╨╕╨╖╤Г╨░╨╗╤М╨╜╨╛. */
+/* specific.h ╨│╨╡╨╜╨╡╤А╨╕╤А╤Г╨╡╤В╤Б╤П ╨░╨▓╤В╨╛╨╝╨░╤В╨╕╤З╨╡╤Б╨║╨╕ ╤Б╨┐╨╡╤Ж╨╕╨░╨╗╤М╨╜╨╛╨╣ ╤Б╨╕╤Б╤В╨╡╨╝╨╛╨╣ */
+/* -- ╨Ш╤О╨╗╤М 2005 -- */
+/* ╨Ш╨╖╨╝╨╡╨╜╨╡╨╜╨░ ╨▒╨░╨╖╨╛╨▓╨░╤П ╨╝╨╛╨┤╨╡╨╗╤М. ╨Я╨╡╤А╨╡╤Е╨╛╨┤ ╨║ ╤Б╨╕╤Б╤В╨╡╨╝╨╡ ╤Б ╨▓╨╡╨║╤В╨╛╤А╨╜╤Л╨╝ ╨┐╨╛╤В╨╡╨╜╤Ж╨╕╨░╨╗╨╛╨╝. */
+/* ╨в╨╡╨┐╨╡╤А╤М ╨░╤А╤Е╨╕╨╝╨╡╨┤╨╛╨▓╨░ ╤Б╨╕╨╗╨░ F(T) ╨╖╨░╨┤╨░╨╡╤В╤Б╤П ╨┐╤А╨╛╨╕╨╖╨▓╨╛╨┤╨╜╤Л╨╝╨╕, ╨╕╤Б╤З╨╡╨╖╨╗╨░ ╨╜╨╡╨╛╨▒╤Е╨╛╨┤╨╕╨╝╨╛╤Б╤В╤М */
+/*   ╨╖╨░╨┤╨░╨▓╨░╤В╤М ╨╛╨┐╨╛╤А╨╜╤Г╤О ╤В╨╡╨╝╨┐╨╡╤А╨░╤В╤Г╤А╤Г */
+/* ╨а╨░╨╖╨▓╨╕╤В ╨╝╨╡╤Е╨░╨╜╨╕╨╖╨╝ ╨┤╨╛╨┐╨╛╨╗╨╜╨╕╤В╨╡╨╗╤М╨╜╤Л╤Е ╤А╨╡╤И╨░╤В╨╡╨╗╨╡╨╣. */
+/* ╨в╨╡╨┐╨╡╤А╤М ╨╝╨╛╨╢╨╜╨╛ ╨╖╨░╨┤╨░╨▓╨░╤В╤М ╨У╨а╨Р╨Э╨Ш╨з╨Э╨л╨Х ╤Г╤Б╨╗╨╛╨▓╨╕╤П ╤Д╤Г╨╜╨║╤Ж╨╕╨╡╨╣ */
+/* ╨Ф╨╛╨▒╨░╨▓╨╗╨╡╨╜ ╨░╨╗╨│╨╡╨▒╤А╨░╨╕╤З╨╡╤Б╨║╨╕╨╣ ╤А╨╡╤И╨░╤В╨╡╨╗╤М (╨┐╤А╤П╨╝╨╛╨╡ ╨▓╤Л╤З╨╕╤Б╨╗╨╡╨╜╨╕╨╡) */
+/* ╨Ф╨╛╨▒╨░╨▓╨╗╨╡╨╜ ╤А╨╡╤И╨░╤В╨╡╨╗╤М ╨┤╨╗╤П ╤Г╤А╨░╨▓╨╜╨╡╨╜╨╕╨╣ ╨Я╤Г╨░╤Б╤Б╨╛╨╜╨░ (╨▓╨╡╤А╤Е╨╜╤П╤П ╤А╨╡╨╗╨░╨║╤Б╨░╤Ж╨╕╤П ╤Б */
+/*   ╤З╨╡╤В╨╜╨╛-╨╜╨╡╤З╨╡╤В╨╜╤Л╨╝ (╤И╨░╤Е╨╝╨░╤В╨╜╤Л╨╝) ╨┐╨╛╤А╤П╨┤╨║╨╛╨╝ ╨╛╨▒╤Е╨╛╨┤╨░, ╤Б ╤З╨╡╨▒╤Л╤И╨╡╨▓╤Б╨║╨╕╨╝ */
+/*   ╤Г╤Б╨║╨╛╤А╨╡╨╜╨╕╨╡╨╝. ╨Ю╨┐╤В╨╕╨╝╨░╨╗╤М╨╜╨╛╨╡ Theta ╨╕╤Й╨╡╤В╤Б╤П ╤Б╨║╨░╨╜╨╕╤А╨╛╨▓╨░╨╜╨╕╨╡╨╝ (╨╛╨┐╤В╨╕╨╝╨╕╨╖╨░╤Ж╨╕╤П) */
+/* ╨Т╨╜╨╡╤Б╨╡╨╜╨░ ╨▒╨╛╨╗╤М╤И╨░╤П ╨╜╨╡╤П╨▓╨╜╨╛╤Б╤В╤М -- ╤Д╤Г╨╜╨║╤Ж╨╕╤П K ╤А╨░╨╖╨▒╨╕╤В╨░ ╨╜╨░ ╨┤╨▓╨╡ ╤З╨░╤Б╤В╨╕ ╨┐╨╛ ╨У╨╛╨╗╨╛╨▓╨╕╤З╨╡╨▓╤Г */
 /*   K = K'+H*S */
-/* Теперь можно свободно вводить источниковые члены в уравнения для веществ */
-/* ВАЖНОЕ ИЗМЕНЕНИЕ: теперь K, S везде задаются с естественным знаком ПЛЮС */
-/* ВАЖНОЕ ИЗМЕНЕНИЕ: */
-/* Введено разделение правых частей на быструю и медленную подсистемы */
-/* Медленная подсистема работает при полном интегрировании всех уравнений */
-/*   с главным шагом TAU -- с предвычислением, предсказанием, обменами. */
-/* Быстрая подсистема интегрируется "внутри" одной итерации медленной */
-/*   подсистемы, с шагом FastTAU. При этом работа идет локально, */
-/*   нет обменов данными, нет предвычислений по Головичеву, отключается */
-/*   предсказание. Выключаются все решатели, КРОМЕ Рожкова и ДИНАМИЧЕСКОГО */
-/*   который переходит в режим вычислений по схеме Рожкова. */
-/* Добавлен сброс в ноль значений переменных, по модулю меньших 1E-20 */
-/* Теперь можно задавать НАЧАЛЬНЫЕ значения функцией */
-/* Добавлена возможность указать границы значений переменных: +/-/любая. */
-/* Добавлен расчет угла падения солнечных лучей */
-/* Добавлен решатель для уравнения распространения прямых солнечных лучей */
-/* Добавлено излучение: прямое и диффузное солнечное (видимое и инфракрасное), */
-/*  также тепловое инфракрасное. */
-/* -- Февраль 2006 -- */
-/* Программа адаптирована для поддержки Router МВС-100 */
-/* -- Апрель 2007 -- */
-/* Введена частичная прямая поддержка блоков с общей памятью (гетерогенных систем) */
-/* -- Июль 2007 -- */
-/* Введена поддержка OpenMP */
-/* -- Август 2007 -- */
-/* Теперь у веществ в реакциях могут быть отрицательные и дробные коэффициенты */
-/* -- Сентябрь 2007 -- */
-/* Усовершенствована обработка граничных условий 2-го рода на углах. Теперь */
-/*  в угол записывается среднее значение по соседним узлам по нормалям. */
-/* Реализована более корректная схема для противоточных производных. */
-/* Введена динамическая настройка шага по времени (временная сетка множителей) */
-/* -- Ноябрь 2007 -- */
-/* Изменена базовая модель. Вернулся к системе с давлением (уравнение Пуассона) */
-/* Введена возможность отключения счета по базовой модели в заданное время */
-/* -- Сентябрь 2015 */
-/* Изменение параметров при запуске. Подключение графического интерфейса ввода параметров params.exe */
-/* -- Октябрь 2015 */
-/* Новый контроль точности */
-/* -- Ноябрь 2015 - Май 2016 */
-/* Теперь сложные граничные узлы с несколькими гранями сохраняются дополнительно в файл *.bnd */
+/* ╨в╨╡╨┐╨╡╤А╤М ╨╝╨╛╨╢╨╜╨╛ ╤Б╨▓╨╛╨▒╨╛╨┤╨╜╨╛ ╨▓╨▓╨╛╨┤╨╕╤В╤М ╨╕╤Б╤В╨╛╤З╨╜╨╕╨║╨╛╨▓╤Л╨╡ ╤З╨╗╨╡╨╜╤Л ╨▓ ╤Г╤А╨░╨▓╨╜╨╡╨╜╨╕╤П ╨┤╨╗╤П ╨▓╨╡╤Й╨╡╤Б╤В╨▓ */
+/* ╨Т╨Р╨Ц╨Э╨Ю╨Х ╨Ш╨Ч╨Ь╨Х╨Э╨Х╨Э╨Ш╨Х: ╤В╨╡╨┐╨╡╤А╤М K, S ╨▓╨╡╨╖╨┤╨╡ ╨╖╨░╨┤╨░╤О╤В╤Б╤П ╤Б ╨╡╤Б╤В╨╡╤Б╤В╨▓╨╡╨╜╨╜╤Л╨╝ ╨╖╨╜╨░╨║╨╛╨╝ ╨Я╨Ы╨о╨б */
+/* ╨Т╨Р╨Ц╨Э╨Ю╨Х ╨Ш╨Ч╨Ь╨Х╨Э╨Х╨Э╨Ш╨Х: */
+/* ╨Т╨▓╨╡╨┤╨╡╨╜╨╛ ╤А╨░╨╖╨┤╨╡╨╗╨╡╨╜╨╕╨╡ ╨┐╤А╨░╨▓╤Л╤Е ╤З╨░╤Б╤В╨╡╨╣ ╨╜╨░ ╨▒╤Л╤Б╤В╤А╤Г╤О ╨╕ ╨╝╨╡╨┤╨╗╨╡╨╜╨╜╤Г╤О ╨┐╨╛╨┤╤Б╨╕╤Б╤В╨╡╨╝╤Л */
+/* ╨Ь╨╡╨┤╨╗╨╡╨╜╨╜╨░╤П ╨┐╨╛╨┤╤Б╨╕╤Б╤В╨╡╨╝╨░ ╤А╨░╨▒╨╛╤В╨░╨╡╤В ╨┐╤А╨╕ ╨┐╨╛╨╗╨╜╨╛╨╝ ╨╕╨╜╤В╨╡╨│╤А╨╕╤А╨╛╨▓╨░╨╜╨╕╨╕ ╨▓╤Б╨╡╤Е ╤Г╤А╨░╨▓╨╜╨╡╨╜╨╕╨╣ */
+/*   ╤Б ╨│╨╗╨░╨▓╨╜╤Л╨╝ ╤И╨░╨│╨╛╨╝ TAU -- ╤Б ╨┐╤А╨╡╨┤╨▓╤Л╤З╨╕╤Б╨╗╨╡╨╜╨╕╨╡╨╝, ╨┐╤А╨╡╨┤╤Б╨║╨░╨╖╨░╨╜╨╕╨╡╨╝, ╨╛╨▒╨╝╨╡╨╜╨░╨╝╨╕. */
+/* ╨С╤Л╤Б╤В╤А╨░╤П ╨┐╨╛╨┤╤Б╨╕╤Б╤В╨╡╨╝╨░ ╨╕╨╜╤В╨╡╨│╤А╨╕╤А╤Г╨╡╤В╤Б╤П "╨▓╨╜╤Г╤В╤А╨╕" ╨╛╨┤╨╜╨╛╨╣ ╨╕╤В╨╡╤А╨░╤Ж╨╕╨╕ ╨╝╨╡╨┤╨╗╨╡╨╜╨╜╨╛╨╣ */
+/*   ╨┐╨╛╨┤╤Б╨╕╤Б╤В╨╡╨╝╤Л, ╤Б ╤И╨░╨│╨╛╨╝ FastTAU. ╨Я╤А╨╕ ╤Н╤В╨╛╨╝ ╤А╨░╨▒╨╛╤В╨░ ╨╕╨┤╨╡╤В ╨╗╨╛╨║╨░╨╗╤М╨╜╨╛, */
+/*   ╨╜╨╡╤В ╨╛╨▒╨╝╨╡╨╜╨╛╨▓ ╨┤╨░╨╜╨╜╤Л╨╝╨╕, ╨╜╨╡╤В ╨┐╤А╨╡╨┤╨▓╤Л╤З╨╕╤Б╨╗╨╡╨╜╨╕╨╣ ╨┐╨╛ ╨У╨╛╨╗╨╛╨▓╨╕╤З╨╡╨▓╤Г, ╨╛╤В╨║╨╗╤О╤З╨░╨╡╤В╤Б╤П */
+/*   ╨┐╤А╨╡╨┤╤Б╨║╨░╨╖╨░╨╜╨╕╨╡. ╨Т╤Л╨║╨╗╤О╤З╨░╤О╤В╤Б╤П ╨▓╤Б╨╡ ╤А╨╡╤И╨░╤В╨╡╨╗╨╕, ╨Ъ╨а╨Ю╨Ь╨Х ╨а╨╛╨╢╨║╨╛╨▓╨░ ╨╕ ╨Ф╨Ш╨Э╨Р╨Ь╨Ш╨з╨Х╨б╨Ъ╨Ю╨У╨Ю */
+/*   ╨║╨╛╤В╨╛╤А╤Л╨╣ ╨┐╨╡╤А╨╡╤Е╨╛╨┤╨╕╤В ╨▓ ╤А╨╡╨╢╨╕╨╝ ╨▓╤Л╤З╨╕╤Б╨╗╨╡╨╜╨╕╨╣ ╨┐╨╛ ╤Б╤Е╨╡╨╝╨╡ ╨а╨╛╨╢╨║╨╛╨▓╨░. */
+/* ╨Ф╨╛╨▒╨░╨▓╨╗╨╡╨╜ ╤Б╨▒╤А╨╛╤Б ╨▓ ╨╜╨╛╨╗╤М ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╣ ╨┐╨╡╤А╨╡╨╝╨╡╨╜╨╜╤Л╤Е, ╨┐╨╛ ╨╝╨╛╨┤╤Г╨╗╤О ╨╝╨╡╨╜╤М╤И╨╕╤Е 1E-20 */
+/* ╨в╨╡╨┐╨╡╤А╤М ╨╝╨╛╨╢╨╜╨╛ ╨╖╨░╨┤╨░╨▓╨░╤В╤М ╨Э╨Р╨з╨Р╨Ы╨м╨Э╨л╨Х ╨╖╨╜╨░╤З╨╡╨╜╨╕╤П ╤Д╤Г╨╜╨║╤Ж╨╕╨╡╨╣ */
+/* ╨Ф╨╛╨▒╨░╨▓╨╗╨╡╨╜╨░ ╨▓╨╛╨╖╨╝╨╛╨╢╨╜╨╛╤Б╤В╤М ╤Г╨║╨░╨╖╨░╤В╤М ╨│╤А╨░╨╜╨╕╤Ж╤Л ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╣ ╨┐╨╡╤А╨╡╨╝╨╡╨╜╨╜╤Л╤Е: +/-/╨╗╤О╨▒╨░╤П. */
+/* ╨Ф╨╛╨▒╨░╨▓╨╗╨╡╨╜ ╤А╨░╤Б╤З╨╡╤В ╤Г╨│╨╗╨░ ╨┐╨░╨┤╨╡╨╜╨╕╤П ╤Б╨╛╨╗╨╜╨╡╤З╨╜╤Л╤Е ╨╗╤Г╤З╨╡╨╣ */
+/* ╨Ф╨╛╨▒╨░╨▓╨╗╨╡╨╜ ╤А╨╡╤И╨░╤В╨╡╨╗╤М ╨┤╨╗╤П ╤Г╤А╨░╨▓╨╜╨╡╨╜╨╕╤П ╤А╨░╤Б╨┐╤А╨╛╤Б╤В╤А╨░╨╜╨╡╨╜╨╕╤П ╨┐╤А╤П╨╝╤Л╤Е ╤Б╨╛╨╗╨╜╨╡╤З╨╜╤Л╤Е ╨╗╤Г╤З╨╡╨╣ */
+/* ╨Ф╨╛╨▒╨░╨▓╨╗╨╡╨╜╨╛ ╨╕╨╖╨╗╤Г╤З╨╡╨╜╨╕╨╡: ╨┐╤А╤П╨╝╨╛╨╡ ╨╕ ╨┤╨╕╤Д╤Д╤Г╨╖╨╜╨╛╨╡ ╤Б╨╛╨╗╨╜╨╡╤З╨╜╨╛╨╡ (╨▓╨╕╨┤╨╕╨╝╨╛╨╡ ╨╕ ╨╕╨╜╤Д╤А╨░╨║╤А╨░╤Б╨╜╨╛╨╡), */
+/*  ╤В╨░╨║╨╢╨╡ ╤В╨╡╨┐╨╗╨╛╨▓╨╛╨╡ ╨╕╨╜╤Д╤А╨░╨║╤А╨░╤Б╨╜╨╛╨╡. */
+/* -- ╨д╨╡╨▓╤А╨░╨╗╤М 2006 -- */
+/* ╨Я╤А╨╛╨│╤А╨░╨╝╨╝╨░ ╨░╨┤╨░╨┐╤В╨╕╤А╨╛╨▓╨░╨╜╨░ ╨┤╨╗╤П ╨┐╨╛╨┤╨┤╨╡╤А╨╢╨║╨╕ Router ╨Ь╨Т╨б-100 */
+/* -- ╨Р╨┐╤А╨╡╨╗╤М 2007 -- */
+/* ╨Т╨▓╨╡╨┤╨╡╨╜╨░ ╤З╨░╤Б╤В╨╕╤З╨╜╨░╤П ╨┐╤А╤П╨╝╨░╤П ╨┐╨╛╨┤╨┤╨╡╤А╨╢╨║╨░ ╨▒╨╗╨╛╨║╨╛╨▓ ╤Б ╨╛╨▒╤Й╨╡╨╣ ╨┐╨░╨╝╤П╤В╤М╤О (╨│╨╡╤В╨╡╤А╨╛╨│╨╡╨╜╨╜╤Л╤Е ╤Б╨╕╤Б╤В╨╡╨╝) */
+/* -- ╨Ш╤О╨╗╤М 2007 -- */
+/* ╨Т╨▓╨╡╨┤╨╡╨╜╨░ ╨┐╨╛╨┤╨┤╨╡╤А╨╢╨║╨░ OpenMP */
+/* -- ╨Р╨▓╨│╤Г╤Б╤В 2007 -- */
+/* ╨в╨╡╨┐╨╡╤А╤М ╤Г ╨▓╨╡╤Й╨╡╤Б╤В╨▓ ╨▓ ╤А╨╡╨░╨║╤Ж╨╕╤П╤Е ╨╝╨╛╨│╤Г╤В ╨▒╤Л╤В╤М ╨╛╤В╤А╨╕╤Ж╨░╤В╨╡╨╗╤М╨╜╤Л╨╡ ╨╕ ╨┤╤А╨╛╨▒╨╜╤Л╨╡ ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╤Л */
+/* -- ╨б╨╡╨╜╤В╤П╨▒╤А╤М 2007 -- */
+/* ╨г╤Б╨╛╨▓╨╡╤А╤И╨╡╨╜╤Б╤В╨▓╨╛╨▓╨░╨╜╨░ ╨╛╨▒╤А╨░╨▒╨╛╤В╨║╨░ ╨│╤А╨░╨╜╨╕╤З╨╜╤Л╤Е ╤Г╤Б╨╗╨╛╨▓╨╕╨╣ 2-╨│╨╛ ╤А╨╛╨┤╨░ ╨╜╨░ ╤Г╨│╨╗╨░╤Е. ╨в╨╡╨┐╨╡╤А╤М */
+/*  ╨▓ ╤Г╨│╨╛╨╗ ╨╖╨░╨┐╨╕╤Б╤Л╨▓╨░╨╡╤В╤Б╤П ╤Б╤А╨╡╨┤╨╜╨╡╨╡ ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╡ ╨┐╨╛ ╤Б╨╛╤Б╨╡╨┤╨╜╨╕╨╝ ╤Г╨╖╨╗╨░╨╝ ╨┐╨╛ ╨╜╨╛╤А╨╝╨░╨╗╤П╨╝. */
+/* ╨а╨╡╨░╨╗╨╕╨╖╨╛╨▓╨░╨╜╨░ ╨▒╨╛╨╗╨╡╨╡ ╨║╨╛╤А╤А╨╡╨║╤В╨╜╨░╤П ╤Б╤Е╨╡╨╝╨░ ╨┤╨╗╤П ╨┐╤А╨╛╤В╨╕╨▓╨╛╤В╨╛╤З╨╜╤Л╤Е ╨┐╤А╨╛╨╕╨╖╨▓╨╛╨┤╨╜╤Л╤Е. */
+/* ╨Т╨▓╨╡╨┤╨╡╨╜╨░ ╨┤╨╕╨╜╨░╨╝╨╕╤З╨╡╤Б╨║╨░╤П ╨╜╨░╤Б╤В╤А╨╛╨╣╨║╨░ ╤И╨░╨│╨░ ╨┐╨╛ ╨▓╤А╨╡╨╝╨╡╨╜╨╕ (╨▓╤А╨╡╨╝╨╡╨╜╨╜╨░╤П ╤Б╨╡╤В╨║╨░ ╨╝╨╜╨╛╨╢╨╕╤В╨╡╨╗╨╡╨╣) */
+/* -- ╨Э╨╛╤П╨▒╤А╤М 2007 -- */
+/* ╨Ш╨╖╨╝╨╡╨╜╨╡╨╜╨░ ╨▒╨░╨╖╨╛╨▓╨░╤П ╨╝╨╛╨┤╨╡╨╗╤М. ╨Т╨╡╤А╨╜╤Г╨╗╤Б╤П ╨║ ╤Б╨╕╤Б╤В╨╡╨╝╨╡ ╤Б ╨┤╨░╨▓╨╗╨╡╨╜╨╕╨╡╨╝ (╤Г╤А╨░╨▓╨╜╨╡╨╜╨╕╨╡ ╨Я╤Г╨░╤Б╤Б╨╛╨╜╨░) */
+/* ╨Т╨▓╨╡╨┤╨╡╨╜╨░ ╨▓╨╛╨╖╨╝╨╛╨╢╨╜╨╛╤Б╤В╤М ╨╛╤В╨║╨╗╤О╤З╨╡╨╜╨╕╤П ╤Б╤З╨╡╤В╨░ ╨┐╨╛ ╨▒╨░╨╖╨╛╨▓╨╛╨╣ ╨╝╨╛╨┤╨╡╨╗╨╕ ╨▓ ╨╖╨░╨┤╨░╨╜╨╜╨╛╨╡ ╨▓╤А╨╡╨╝╤П */
+/* -- ╨б╨╡╨╜╤В╤П╨▒╤А╤М 2015 */
+/* ╨Ш╨╖╨╝╨╡╨╜╨╡╨╜╨╕╨╡ ╨┐╨░╤А╨░╨╝╨╡╤В╤А╨╛╨▓ ╨┐╤А╨╕ ╨╖╨░╨┐╤Г╤Б╨║╨╡. ╨Я╨╛╨┤╨║╨╗╤О╤З╨╡╨╜╨╕╨╡ ╨│╤А╨░╤Д╨╕╤З╨╡╤Б╨║╨╛╨│╨╛ ╨╕╨╜╤В╨╡╤А╤Д╨╡╨╣╤Б╨░ ╨▓╨▓╨╛╨┤╨░ ╨┐╨░╤А╨░╨╝╨╡╤В╤А╨╛╨▓ params.exe */
+/* -- ╨Ю╨║╤В╤П╨▒╤А╤М 2015 */
+/* ╨Э╨╛╨▓╤Л╨╣ ╨║╨╛╨╜╤В╤А╨╛╨╗╤М ╤В╨╛╤З╨╜╨╛╤Б╤В╨╕ */
+/* -- ╨Э╨╛╤П╨▒╤А╤М 2015 - ╨Ь╨░╨╣ 2016 */
+/* ╨в╨╡╨┐╨╡╤А╤М ╤Б╨╗╨╛╨╢╨╜╤Л╨╡ ╨│╤А╨░╨╜╨╕╤З╨╜╤Л╨╡ ╤Г╨╖╨╗╤Л ╤Б ╨╜╨╡╤Б╨║╨╛╨╗╤М╨║╨╕╨╝╨╕ ╨│╤А╨░╨╜╤П╨╝╨╕ ╤Б╨╛╤Е╤А╨░╨╜╤П╤О╤В╤Б╤П ╨┤╨╛╨┐╨╛╨╗╨╜╨╕╤В╨╡╨╗╤М╨╜╨╛ ╨▓ ╤Д╨░╨╣╨╗ *.bnd */
 
 /* For Microsoft Visual Studio */
 #define _CRT_SECURE_NO_WARNINGS
 
-#include "memoization.h"
+/* ╨Ш╨╜╤В╨╡╤А╤Д╨╡╨╣╤Б ╤А╨░╤Б╨┐╨░╤А╨░╨╗╨╗╨╡╨╗╨╕╨▓╨░╨╜╨╕╤П */
+/* #define __MPI__        */  /* ╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╤В╤Б╤П ╨┐╤А╨╕ ╤А╨░╨▒╨╛╤В╨╡ ╤Б MPI            */
+#define __OPENMP__       /* ╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╤В╤Б╤П ╨┐╤А╨╕ ╤А╨░╨▒╨╛╤В╨╡ ╤Б OpenMP   */
+/*#define __ROUTER__     */  /* ╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╤В╤Б╤П ╨┐╤А╨╕ ╤А╨░╨▒╨╛╤В╨╡ ╤Б Router+        */
+/*#define __ROUTER_100__ */  /* ╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╤В╤Б╤П ╨┐╤А╨╕ ╤А╨░╨▒╨╛╤В╨╡ ╤Б Router MVS-100 */
 
-/* Интерфейс распараллеливания */
-// #define __MPI__          /* Устанавливается при работе с MPI            */
-// #define __OPENMP__       /* Устанавливается при работе с OpenMP   */
-/*#define __ROUTER__     */  /* Устанавливается при работе с Router+        */
-/*#define __ROUTER_100__ */  /* Устанавливается при работе с Router MVS-100 */
+/* ╨Я╨╗╨░╤В╤Д╨╛╤А╨╝╨░ */
+// #define __MVS__        /* ╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╤В╤Б╤П ╨┐╤А╨╕ ╤А╨░╨▒╨╛╤В╨╡ ╤Б ╨Ь╨Т╨б-1000         */
+/* #define __UNIX__ */      /* ╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╤В╤Б╤П ╨┐╤А╨╕ ╤А╨░╨▒╨╛╤В╨╡ ╤Б UNIX/LINUX/PARIX */
+/* ╨Я╨╛ ╤Г╨╝╨╛╨╗╤З╨░╨╜╨╕╤О -- DOS/WIN32 ╨┐╨╗╨░╤В╤Д╨╛╤А╨╝╨░ */
 
-/* Платформа */
-#define __MVS__        /* Устанавливается при работе с МВС-1000         */
-/* #define __UNIX__ */      /* Устанавливается при работе с UNIX/LINUX/PARIX */
-/* По умолчанию -- DOS/WIN32 платформа */
-
-/*#define __DEBUG__    */ /* Разрешить отладочный вывод в файл */
+/*#define __DEBUG__    */ /* ╨а╨░╨╖╤А╨╡╤И╨╕╤В╤М ╨╛╤В╨╗╨░╨┤╨╛╤З╨╜╤Л╨╣ ╨▓╤Л╨▓╨╛╨┤ ╨▓ ╤Д╨░╨╣╨╗ */
 
 #ifdef __OPENMP__
 int UseOpenMP = 1;
@@ -102,6 +103,7 @@ int UseOpenMP = 0;
 
 #define StopFileName "stop"
 
+int SetSteadyKinetics = 1;
 int OMP_KineticChunk = 50;
 
 #ifdef __MVS__
@@ -111,6 +113,18 @@ int OMP_KineticChunk = 50;
 
 #if defined(__MPI__) || defined(__ROUTER__) || defined(__ROUTER_100__)
 #define __PARALLEL__
+#endif
+
+#ifdef __PARALLEL__
+#include "memoization.h"
+#else
+#include <cmath>
+#ifndef _MSC_VER
+bool _isnan(double x) {
+	return std::isnan(x);
+}
+#endif
+#include "gpu_parallelize.h"
 #endif
 
 #if defined(__WIN32__)
@@ -159,11 +173,16 @@ int OMP_KineticChunk = 50;
 #ifdef __OPENMP__
 
 #include <omp.h>
+
+#ifdef __MPI2REENT__
+#include "mpi.h"
+#else
 #include <mpi.h>
+#endif
 
 #else
 
-#include <mpi.h>
+#include "mpi.h"
 
 #endif
 
@@ -197,18 +216,14 @@ const char * _doubleScanf = "%lf";
 
 KineticContext * Contexts;
 KineticGlobal KGlobal;
-int KinetChunkSize = 120*32; // 3840
 
 int NSubst;
 int NASubst;
 int NReact;
 
-int SetSteadyKinetics = 0; /* !!! */
-int InitOpenMPIters = 3; /* !!! */
-
 #ifndef __PARALLEL__
-TraceTypeHost * Traces = NULL;
 int NKinets = 0;
+int KinetChunkSize = 18*48; // 7*48; // 32*64;
 
 double KinetTime = 0.0;
 #endif
@@ -253,7 +268,7 @@ double KinetTime = 0.0;
 
 #define MIN_EPS 1E-8
 
-double Alpha; /* Параметр для регуляризации по Булееву */
+double Alpha; /* ╨Я╨░╤А╨░╨╝╨╡╤В╤А ╨┤╨╗╤П ╤А╨╡╨│╤Г╨╗╤П╤А╨╕╨╖╨░╤Ж╨╕╨╕ ╨┐╨╛ ╨С╤Г╨╗╨╡╨╡╨▓╤Г */
 
 int    UseGear = 0;
 int    MinGap  = 1;
@@ -476,6 +491,7 @@ void RouterSend(int Proc, void * Buf, long Length)
         FreeBuffer(HndSends[Base+NumSends[Proc]].BufferNum);
         MaxSends[Proc] = NumSends[Proc];
         DebugPrintf(DEBUG_FILE,"MaxSends[%i] = %i now\n",Proc,NumSends[Proc]);
+        fflush(DEBUG_FILE);
         RouterSend(Proc, Buf, Length);
         break;
       case RUN_OK:
@@ -483,6 +499,7 @@ void RouterSend(int Proc, void * Buf, long Length)
         break;
       default:
         DebugPrintf(DEBUG_FILE,"Error on r_write(%i,%x,%i) = %i\n",Proc,Buf,Length,RetCode);
+        fflush(DEBUG_FILE);
 #ifdef __MVS__
         fclose(StdOutput);
 #endif
@@ -498,6 +515,7 @@ void RouterIRecv(int Proc, void * Buf, long Length)
  if (RetCode!=RUN_OK)
     {
      DebugPrintf(DEBUG_FILE,"Error on r_recv(%i,%x,%i) = %i\n",Proc,Buf,Length,RetCode);
+     fflush(DEBUG_FILE);
 #ifdef __MVS__
      fclose(StdOutput);
 #endif
@@ -757,7 +775,7 @@ void RecvSlaveXXXTag(int slave, byte * Buf, long Length)
 
 #endif
 
-/* Коэффициенты,определяющие вхождение противоточных производных в решение */
+/* ╨Ъ╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╤Л,╨╛╨┐╤А╨╡╨┤╨╡╨╗╤П╤О╤Й╨╕╨╡ ╨▓╤Е╨╛╨╢╨┤╨╡╨╜╨╕╨╡ ╨┐╤А╨╛╤В╨╕╨▓╨╛╤В╨╛╤З╨╜╤Л╤Е ╨┐╤А╨╛╨╕╨╖╨▓╨╛╨┤╨╜╤Л╤Е ╨▓ ╤А╨╡╤И╨╡╨╜╨╕╨╡ */
 WKoeffs WXYZ[NumPhases];
 
 #ifdef __PARALLEL__
@@ -1382,9 +1400,9 @@ void RemoveFZero (float * H, unsigned char * Map)
     }
 }
 
-/* Процедура выполнения одной итерации над функцией H с граничными       */
-/* условиями TypeGRN, полем коэффициентов K, коэффициентом при операторе */
-/* Лапласа R, скоростями с предудущей итерации Ux,Uy.                    */
+/* ╨Я╤А╨╛╤Ж╨╡╨┤╤Г╤А╨░ ╨▓╤Л╨┐╨╛╨╗╨╜╨╡╨╜╨╕╤П ╨╛╨┤╨╜╨╛╨╣ ╨╕╤В╨╡╤А╨░╤Ж╨╕╨╕ ╨╜╨░╨┤ ╤Д╤Г╨╜╨║╤Ж╨╕╨╡╨╣ H ╤Б ╨│╤А╨░╨╜╨╕╤З╨╜╤Л╨╝╨╕       */
+/* ╤Г╤Б╨╗╨╛╨▓╨╕╤П╨╝╨╕ TypeGRN, ╨┐╨╛╨╗╨╡╨╝ ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨╛╨▓ K, ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨╛╨╝ ╨┐╤А╨╕ ╨╛╨┐╨╡╤А╨░╤В╨╛╤А╨╡ */
+/* ╨Ы╨░╨┐╨╗╨░╤Б╨░ R, ╤Б╨║╨╛╤А╨╛╤Б╤В╤П╨╝╨╕ ╤Б ╨┐╤А╨╡╨┤╤Г╨┤╤Г╤Й╨╡╨╣ ╨╕╤В╨╡╤А╨░╤Ж╨╕╨╕ Ux,Uy.                    */
 #ifndef __PARALLEL__
 void Calculate (float ** Bounds,
                 _Solver S,
@@ -1434,7 +1452,7 @@ void Calculate (float ** Bounds,
     {
      if (Reverse)
         {
-         /* Прогонка по Z  */
+         /* ╨Я╤А╨╛╨│╨╛╨╜╨║╨░ ╨┐╨╛ Z  */
          OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WZ1,W->WZ2,HZR,HZ,HZZ,HZS,
                    H1,L,M,G,R, Rt,Kp, NY,NX,NZ, NX,1,NY*NX, DescV, Flags, RegularZ,
                    Map, UseOpenMP);
@@ -1444,7 +1462,7 @@ void Calculate (float ** Bounds,
         }
      else
         {
-         /* Прогонка по Y  */
+         /* ╨Я╤А╨╛╨│╨╛╨╜╨║╨░ ╨┐╨╛ Y  */
          OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WY1,W->WY2,HYR,HY,HYY,HYS,
                    H1,L,M,G,R, Rt,Kp, NZ,NX,NY, NY*NX,1,NX, DescP, Flags, RegularY,
                    Map, UseOpenMP);
@@ -1452,7 +1470,7 @@ void Calculate (float ** Bounds,
          CorrectBounds(Bounds,H, NY,NX,NZ, NX,1,NY*NX, DescV,Map,Area, Projection, 2, UseOpenMP);
          CorrectBounds(Bounds,H, NZ,NY,NX, NY*NX,NX,1, DescH,Map,Area, Projection, 0, UseOpenMP);
         }
-     /* Прогонка по X */
+     /* ╨Я╤А╨╛╨│╨╛╨╜╨║╨░ ╨┐╨╛ X */
      OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WX1,W->WX2,HXR,HX,HXX,HXS,
                H1,L,M,G,R, Rt,Kp, NZ,NY,NX, NY*NX,NX,1, DescH, Flags, RegularX,
                Map, UseOpenMP);
@@ -1461,7 +1479,7 @@ void Calculate (float ** Bounds,
      CorrectBounds(Bounds,H, NZ,NX,NY, NY*NX,1,NX, DescP,Map,Area, Projection, 1, UseOpenMP);
      if (!Reverse)
         {
-         /* Прогонка по Z  */
+         /* ╨Я╤А╨╛╨│╨╛╨╜╨║╨░ ╨┐╨╛ Z  */
          OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WZ1,W->WZ2,HZR,HZ,HZZ,HZS,
                    H1,L,M,G,R, Rt,Kp, NY,NX,NZ, NX,1,NY*NX, DescV, Flags, RegularZ,
                    Map, UseOpenMP);
@@ -1471,7 +1489,7 @@ void Calculate (float ** Bounds,
         }
      else
         {
-         /* Прогонка по Y  */
+         /* ╨Я╤А╨╛╨│╨╛╨╜╨║╨░ ╨┐╨╛ Y  */
          OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WY1,W->WY2,HYR,HY,HYY,HYS,
                    H1,L,M,G,R, Rt,Kp, NZ,NX,NY, NY*NX,1,NX, DescP, Flags, RegularY,
                    Map, UseOpenMP);
@@ -1512,7 +1530,7 @@ void CalculateInXY
      for (Mode=0; Mode<2; Mode++)
        if (Mode==Reverse)
           {
-           /* Прогонка по X */
+           /* ╨Я╤А╨╛╨│╨╛╨╜╨║╨░ ╨┐╨╛ X */
            OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WX1,W->WX2,HXR,HX,HXX,HXS,
                      H1,L,M,G,R, &Rt[NY*NX],Kp, NZ,NY,NX, NY*NX,NX,1, DescH, Flags, RegularX,
                      Map, HX[NXs], UseOpenMP);
@@ -1522,7 +1540,7 @@ void CalculateInXY
           }
        else
           {
-           /* Прогонка по Y  */
+           /* ╨Я╤А╨╛╨│╨╛╨╜╨║╨░ ╨┐╨╛ Y  */
            OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WY1,W->WY2,HYR,HY,HYY,HYS,
                      H1,L,M,G,R, &Rt[NY*NX],Kp, NZ,NX,NY, NY*NX,1,NX, DescP, Flags, RegularY,
                      Map, HY[NYs], UseOpenMP);
@@ -1533,41 +1551,41 @@ void CalculateInXY
     }
 }
 
-/* Флаг разрешения экстраполяции */
+/* ╨д╨╗╨░╨│ ╤А╨░╨╖╤А╨╡╤И╨╡╨╜╨╕╤П ╤Н╨║╤Б╤В╤А╨░╨┐╨╛╨╗╤П╤Ж╨╕╨╕ */
 int AllowPrediction = 0;
-/* Число коэффициентов интерполируещего полинома */
+/* ╨з╨╕╤Б╨╗╨╛ ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨╛╨▓ ╨╕╨╜╤В╨╡╤А╨┐╨╛╨╗╨╕╤А╤Г╨╡╤Й╨╡╨│╨╛ ╨┐╨╛╨╗╨╕╨╜╨╛╨╝╨░ */
 #define NWB    4
-/* Число точек, по которым идет интерполяция МНК */
+/* ╨з╨╕╤Б╨╗╨╛ ╤В╨╛╤З╨╡╨║, ╨┐╨╛ ╨║╨╛╤В╨╛╤А╤Л╨╝ ╨╕╨┤╨╡╤В ╨╕╨╜╤В╨╡╤А╨┐╨╛╨╗╤П╤Ж╨╕╤П ╨Ь╨Э╨Ъ */
 #define NExp   5
-/* Количество экстраполируемых точек */
+/* ╨Ъ╨╛╨╗╨╕╤З╨╡╤Б╤В╨▓╨╛ ╤Н╨║╤Б╤В╤А╨░╨┐╨╛╨╗╨╕╤А╤Г╨╡╨╝╤Л╤Е ╤В╨╛╤З╨╡╨║ */
 #define NPred  1
-/* Количество пропускаемых в начале итераций */
+/* ╨Ъ╨╛╨╗╨╕╤З╨╡╤Б╤В╨▓╨╛ ╨┐╤А╨╛╨┐╤Г╤Б╨║╨░╨╡╨╝╤Л╤Е ╨▓ ╨╜╨░╤З╨░╨╗╨╡ ╨╕╤В╨╡╤А╨░╤Ж╨╕╨╣ */
 #define ByPass 50
-/* Стадия: <0 = Запрет. 0..NExp-1 = сбор информации. NExp..NExp+NPred+1 = экстраполяция */
+/* ╨б╤В╨░╨┤╨╕╤П: <0 = ╨Ч╨░╨┐╤А╨╡╤В. 0..NExp-1 = ╤Б╨▒╨╛╤А ╨╕╨╜╤Д╨╛╤А╨╝╨░╤Ж╨╕╨╕. NExp..NExp+NPred+1 = ╤Н╨║╤Б╤В╤А╨░╨┐╨╛╨╗╤П╤Ж╨╕╤П */
 int Stage = -1;
-/* Флаг использования взвешенных коэффициентов для МНК */
+/* ╨д╨╗╨░╨│ ╨╕╤Б╨┐╨╛╨╗╤М╨╖╨╛╨▓╨░╨╜╨╕╤П ╨▓╨╖╨▓╨╡╤И╨╡╨╜╨╜╤Л╤Е ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨╛╨▓ ╨┤╨╗╤П ╨Ь╨Э╨Ъ */
 int AllowQW = 1;
-/* Период контроля сеансов предикции */
+/* ╨Я╨╡╤А╨╕╨╛╨┤ ╨║╨╛╨╜╤В╤А╨╛╨╗╤П ╤Б╨╡╨░╨╜╤Б╨╛╨▓ ╨┐╤А╨╡╨┤╨╕╨║╤Ж╨╕╨╕ */
 #define ReCalcNPs 10
-/* Количество экспериментальных точек для анализа при пересчете коэффициентов */
+/* ╨Ъ╨╛╨╗╨╕╤З╨╡╤Б╤В╨▓╨╛ ╤Н╨║╤Б╨┐╨╡╤А╨╕╨╝╨╡╨╜╤В╨░╨╗╤М╨╜╤Л╤Е ╤В╨╛╤З╨╡╨║ ╨┤╨╗╤П ╨░╨╜╨░╨╗╨╕╨╖╨░ ╨┐╤А╨╕ ╨┐╨╡╤А╨╡╤Б╤З╨╡╤В╨╡ ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨╛╨▓ */
 #define ReCalcNPoints 30
-/* Максимальное значение коэффициента */
+/* ╨Ь╨░╨║╤Б╨╕╨╝╨░╨╗╤М╨╜╨╛╨╡ ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╡ ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨░ */
 #define MaxKQ 490.0
-/* Минимальное значение коэффициента */
+/* ╨Ь╨╕╨╜╨╕╨╝╨░╨╗╤М╨╜╨╛╨╡ ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╡ ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨░ */
 #define MinKQ 10.0
-/* Начальное значение коэффициента */
+/* ╨Э╨░╤З╨░╨╗╤М╨╜╨╛╨╡ ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╡ ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨░ */
 #define InitKQ 250.0
-/* Шаг изменения коэффициента */
+/* ╨и╨░╨│ ╨╕╨╖╨╝╨╡╨╜╨╡╨╜╨╕╤П ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨░ */
 #define StepKQ 20.0
 
-typedef double WBVect[NWB];  /* Вектор значений */
-typedef int    WBInds[NWB];  /* Вектор индексов строк для решения СЛАУ */
-typedef float  WBVals[NExp+NPred]; /* Вектор значений для контроля коэффициентов */
+typedef double WBVect[NWB];  /* ╨Т╨╡╨║╤В╨╛╤А ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╣ */
+typedef int    WBInds[NWB];  /* ╨Т╨╡╨║╤В╨╛╤А ╨╕╨╜╨┤╨╡╨║╤Б╨╛╨▓ ╤Б╤В╤А╨╛╨║ ╨┤╨╗╤П ╤А╨╡╤И╨╡╨╜╨╕╤П ╨б╨Ы╨Р╨г */
+typedef float  WBVals[NExp+NPred]; /* ╨Т╨╡╨║╤В╨╛╤А ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╣ ╨┤╨╗╤П ╨║╨╛╨╜╤В╤А╨╛╨╗╤П ╨║╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╨╛╨▓ */
 
 typedef union {
- /* Коэффициенты полинома */
+ /* ╨Ъ╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╤Л ╨┐╨╛╨╗╨╕╨╜╨╛╨╝╨░ */
  WBVect X;
- /* Вектор значений интерполируемой ф-ции для МНК */
+ /* ╨Т╨╡╨║╤В╨╛╤А ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╣ ╨╕╨╜╤В╨╡╤А╨┐╨╛╨╗╨╕╤А╤Г╨╡╨╝╨╛╨╣ ╤Д-╤Ж╨╕╨╕ ╨┤╨╗╤П ╨Ь╨Э╨Ъ */
  float F[NExp];
 } TrVect;
 
@@ -1605,7 +1623,7 @@ double CalcPredictErr(WBVals * Trace, double Min, double * KQ, int Index, double
  if (KQ[Index]>=MinKQ && KQ[Index]<=MaxKQ)
     {
      PreparePrediction(KQ);
-     /* МНК и предикция во всех точках. Суммируем отклонения в Err. */
+     /* ╨Ь╨Э╨Ъ ╨╕ ╨┐╤А╨╡╨┤╨╕╨║╤Ж╨╕╤П ╨▓╨╛ ╨▓╤Б╨╡╤Е ╤В╨╛╤З╨║╨░╤Е. ╨б╤Г╨╝╨╝╨╕╤А╤Г╨╡╨╝ ╨╛╤В╨║╨╗╨╛╨╜╨╡╨╜╨╕╤П ╨▓ Err. */
      for (i=0; i<ReCalcNPoints; i++)
        {
         WBVect X;
@@ -1698,7 +1716,7 @@ void CalculateInZ
                           DTrace[Ptr].F[Stage] = H1[Ptr];
             if (S==NULL)
                {
-                /* Предвычисление по схеме Головичева на нижней границе */
+                /* ╨Я╤А╨╡╨┤╨▓╤Л╤З╨╕╤Б╨╗╨╡╨╜╨╕╨╡ ╨┐╨╛ ╤Б╤Е╨╡╨╝╨╡ ╨У╨╛╨╗╨╛╨▓╨╕╤З╨╡╨▓╨░ ╨╜╨░ ╨╜╨╕╨╢╨╜╨╡╨╣ ╨│╤А╨░╨╜╨╕╤Ж╨╡ */
                 aR1  = TAU/HZR[0].h/HZR[0].h;
                 #pragma omp parallel if(UseOpenMP)
                 #pragma omp for schedule(dynamic,imax(4,NY/8)) private(y,x,Ptr)
@@ -1760,7 +1778,7 @@ void CalculateInZ
                           UTrace[Ptr-NZs*NY*NX].F[Stage] = H1[Ptr];
             if (S==NULL)
                {
-                /* Предвычисление по схеме Головичева на верхней границе */
+                /* ╨Я╤А╨╡╨┤╨▓╤Л╤З╨╕╤Б╨╗╨╡╨╜╨╕╨╡ ╨┐╨╛ ╤Б╤Е╨╡╨╝╨╡ ╨У╨╛╨╗╨╛╨▓╨╕╤З╨╡╨▓╨░ ╨╜╨░ ╨▓╨╡╤А╤Е╨╜╨╡╨╣ ╨│╤А╨░╨╜╨╕╤Ж╨╡ */
                 aR1  = TAU/HZR[NZs].h/HZR[NZs].h;
                 #pragma omp parallel if(UseOpenMP)
                 #pragma omp for schedule(dynamic,imax(4,NY/8)) private(y,x,Ptr)
@@ -1835,7 +1853,7 @@ void CalculateInZ
     }
  else if (SlowMode)
     {
-     /* Прогонка по Z */
+     /* ╨Я╤А╨╛╨│╨╛╨╜╨║╨░ ╨┐╨╛ Z */
      OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WZ1,W->WZ2,HZR,HZ,HZZ,HZS,
                H1,L,M,G,R, &Rt[NY*NX],Kp, NY,NX,NZ, NX,1,NY*NX, DescV, Flags, RegularZ,
                Map, HZbf, UseOpenMP);
@@ -1846,42 +1864,42 @@ void CalculateInZ
 }
 #endif
 
-/* Коэффициенты для Ux, Uy, Uz, P, Nu, (T и Dn) */
+/* ╨Ъ╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╤Л ╨┤╨╗╤П Ux, Uy, Uz, P, Nu, (T ╨╕ Dn) */
 float * Kfs[NumEqs];
 float * KDn[MaxActSubst];
 float * Sfs[NumEqs];
 float * SDn[MaxActSubst];
 
-/* Вспомогательные данные */
+/* ╨Т╤Б╨┐╨╛╨╝╨╛╨│╨░╤В╨╡╨╗╤М╨╜╤Л╨╡ ╨┤╨░╨╜╨╜╤Л╨╡ */
 float * UzSave  = NULL;
 
-int BaseZ = 0; /* Номер узла -- начальной координаты Z участка процессора */
+int BaseZ = 0; /* ╨Э╨╛╨╝╨╡╤А ╤Г╨╖╨╗╨░ -- ╨╜╨░╤З╨░╨╗╤М╨╜╨╛╨╣ ╨║╨╛╨╛╤А╨┤╨╕╨╜╨░╤В╤Л Z ╤Г╤З╨░╤Б╤В╨║╨░ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨░ */
 
-int TotalNParts = 0; /* Общее число частиц */
-int NParts = 0; /* Локальное число частиц */
+int TotalNParts = 0; /* ╨Ю╨▒╤Й╨╡╨╡ ╤З╨╕╤Б╨╗╨╛ ╤З╨░╤Б╤В╨╕╤Ж */
+int NParts = 0; /* ╨Ы╨╛╨║╨░╨╗╤М╨╜╨╛╨╡ ╤З╨╕╤Б╨╗╨╛ ╤З╨░╤Б╤В╨╕╤Ж */
 
-/* Вспомогательные данные для проверки точности */
+/* ╨Т╤Б╨┐╨╛╨╝╨╛╨│╨░╤В╨╡╨╗╤М╨╜╤Л╨╡ ╨┤╨░╨╜╨╜╤Л╨╡ ╨┤╨╗╤П ╨┐╤А╨╛╨▓╨╡╤А╨║╨╕ ╤В╨╛╤З╨╜╨╛╤Б╤В╨╕ */
 StoreStruct Templ;
 StoreStruct Old;
-/* Вычисляемые данные (текущая итерация) */
+/* ╨Т╤Л╤З╨╕╤Б╨╗╤П╨╡╨╝╤Л╨╡ ╨┤╨░╨╜╨╜╤Л╨╡ (╤В╨╡╨║╤Г╤Й╨░╤П ╨╕╤В╨╡╤А╨░╤Ж╨╕╤П) */
 StoreStruct Vars;
 
-/* Поле критичности для проверки точности */
+/* ╨Я╨╛╨╗╨╡ ╨║╤А╨╕╤В╨╕╤З╨╜╨╛╤Б╤В╨╕ ╨┤╨╗╤П ╨┐╤А╨╛╨▓╨╡╤А╨║╨╕ ╤В╨╛╤З╨╜╨╛╤Б╤В╨╕ */
 float * GRAV = NULL;
-/* Поле неявности для разностной схемы (по результатам проверки точности) */
+/* ╨Я╨╛╨╗╨╡ ╨╜╨╡╤П╨▓╨╜╨╛╤Б╤В╨╕ ╨┤╨╗╤П ╤А╨░╨╖╨╜╨╛╤Б╤В╨╜╨╛╨╣ ╤Б╤Е╨╡╨╝╤Л (╨┐╨╛ ╤А╨╡╨╖╤Г╨╗╤М╤В╨░╤В╨░╨╝ ╨┐╤А╨╛╨▓╨╡╤А╨║╨╕ ╤В╨╛╤З╨╜╨╛╤Б╤В╨╕) */
 float * ALPHA = NULL;
-/* Поле максимальных ошибок */
+/* ╨Я╨╛╨╗╨╡ ╨╝╨░╨║╤Б╨╕╨╝╨░╨╗╤М╨╜╤Л╤Е ╨╛╤И╨╕╨▒╨╛╨║ */
 float * ERRS = NULL;
 
-/* Промежуточные значения H */
+/* ╨Я╤А╨╛╨╝╨╡╨╢╤Г╤В╨╛╤З╨╜╤Л╨╡ ╨╖╨╜╨░╤З╨╡╨╜╨╕╤П H */
 float * H1 = NULL;
 
-/* Коэффициенты прогонки */
+/* ╨Ъ╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╤Л ╨┐╤А╨╛╨│╨╛╨╜╨║╨╕ */
 double * L  = NULL;
 double * M  = NULL;
 double * G  = NULL;
 
-/* Карты */
+/* ╨Ъ╨░╤А╤В╤Л */
 MapItem Maps[NumEqs];
 
 unsigned char  * Area  = NULL;
@@ -2029,311 +2047,55 @@ int TranslateBoundaries(float * Val, int Offset) {
 
 #ifndef __PARALLEL__
 
-int TraceCmp(const void * A0, const void * B0)
-{
-	TraceTypeHost * A = (TraceTypeHost *)A0;
-	TraceTypeHost * B = (TraceTypeHost *)B0;
-	int d = B->Iters - A->Iters;
-	int i;
-
-	if (abs(d) > 0) return d;
-
-	for (i = 0; i < markZ99; i++) {
-		int p = B->KinetTraceWOrder[i];
-		int q = (B->Tr[p] - A->Tr[p]);
-		if (q != 0) return q;
-	}
-
-	return 0;
-}
-
-int TraceWCmp(const void * A0, const void * B0)
-{
-	TraceWSorter * A = (TraceWSorter *)A0;
-	TraceWSorter * B = (TraceWSorter *)B0;
-	float d = B->W - A->W;
-
-	return d < 0 ? -1 : (d > 0 ? +1 : 0);
-}
-
-float determ(float a1, float b1, float a2, float b2) {
-	return a1*b2 - a2*b1;
-}
-
-void GetPredictor(int p, int Iters3, int Iters2, int Iters1, int Iters, float * W1, float * Q) {
-	float a1, b1, a2, b2, s1, s2;
-	if (p == 3) {
-		a1 = Iters3*Iters3 + Iters2*Iters2 + Iters1*Iters1;
-		b1 = Iters3 + Iters2 + Iters1;
-		a2 = b1;
-		b2 = 3;
-		s1 = Iters2*Iters3 + Iters1*Iters2 + Iters*Iters1;
-		s2 = Iters2 + Iters1 + Iters;
-	} else if (p == 2) {
-		a1 = Iters2*Iters2 + Iters1*Iters1;
-		b1 = Iters2 + Iters1;
-		a2 = b1;
-		b2 = 2;
-		s1 = Iters1*Iters2 + Iters*Iters1;
-		s2 = Iters1 + Iters;
-	} else if (p == 1) {
-		*W1 = 1.0;
-		*Q = 0.0;
-		return;
-	}
-
-	float d = determ(a1, b1, a2, b2);
-	if (fabsf(d) < 1E-5) {
-		*W1 = 1.0;
-		*Q = 0.0;
-	} else {
-		*W1 = determ(s1, b1, s2, b2) / d;
-		*Q = determ(a1, s1, a2, s2) / d;
-	}
-}
-
-reenterable processKinetics(int init /* !!! 0 -- work, 1 -- GPUinit, 2 -- OpenMPinit */, int k, int group_size, int NKinets, int KinetChunkSize, TraceTypeHost * Traces,
-	KineticContext * Contexts, _global(1) KineticGlobal * KGlobal,
-	float * T, void * _Dn, int UseGear, int Method, _local(1) KineticContext * C) {
-	if (init) {
-#pragma pack(push, 1)
-		typedef union { __global void * p1; __global float ** p2; } converter;
-		converter c;
-#pragma pack(pop)
-	        __global float ** Dn;
-		int i, j, s, p;
-
-		c.p1 = _Dn;
-	        Dn = c.p2;
-
-		if (group_size != 0x7FFFFFFF) {
-			int offs = k - group_size;
-			for (j = 0; j < group_size; j++, offs++) {
-				if (!Contexts[j].LossPrecision)
-					for (i = 0; i < KGlobal->NASubst; i++)
-						Dn[KGlobal->TranMap[i]][Traces[offs].tag] = Contexts[j].Conc1[i];
-				Traces[offs].Iters = Contexts[j].Iters;
-				for (s = HistorySize-1; s > 0; s--)
-					Traces[offs].Timings[s] = Traces[offs].Timings[s-1];
-				Traces[offs].Timings[0] = (init == 1 ? last_execution_time(NULL) : 0.0f);
-				memmove(Traces[offs].Tr, Contexts[j].Trace, sizeof(TraceType));
-			}
-		} else {
-			gmemset(KGlobal->aMNK, 0, sizeof(KGlobal->aMNK));
-			gmemset(KGlobal->bMNK, 0, sizeof(KGlobal->bMNK));
-		}
-
-		group_size = 0;
-
-		for (; k < NKinets; k++) {
-			Contexts[group_size].LossPrecision = 0;
-			if (T)
-				SetTk(&Contexts[group_size], T[Traces[k].tag]);
-			else
-				SetTk(&Contexts[group_size], KGlobal->DefaultT);
-			for (i = 0; i < KGlobal->NASubst; i++)
-				Contexts[group_size].Conc0[i] = Dn[KGlobal->TranMap[i]][Traces[k].tag];
-			plan_last(0 /* !!! */, 0, 0, NKinets, KinetChunkSize, Traces, Contexts, KGlobal, T, _Dn, UseGear, Method, Contexts+group_size);
-			
-			group_size++;
-			if (k == NKinets-1 || group_size == KinetChunkSize) {
-/* !!! */
-				if (k == NKinets-1) {
-					int p;
-					for (p = group_size; p < KinetChunkSize; p++) {
-						Contexts[p].LossPrecision = 0;
-						if (T)
-							SetTk(&Contexts[p], T[Traces[k].tag]);
-						else
-							SetTk(&Contexts[p], KGlobal->DefaultT);
-						for (i = 0; i < KGlobal->NASubst; i++)
-							Contexts[p].Conc0[i] = Dn[KGlobal->TranMap[i]][Traces[k].tag];
-						plan_last(0 /* !!! */, 0, 0, NKinets, KinetChunkSize, Traces, Contexts, KGlobal, T, _Dn, UseGear, Method, Contexts+p);
-					}
-				}
-				plan_group_last;
-				plan_last(init /* !!! */, k+1, group_size, NKinets, KinetChunkSize, Traces, Contexts, KGlobal, T, _Dn, UseGear, Method, Contexts);
-
-				if (init == 1) {
-					plan_group_vectorize(NULL);
-				} else {
-					plan_group_parallelize;
-				}
-
-				return;
-			}
-		}
-
-		if (KGlobal->KinetTraceWNotFound) { 
-			for (j = 0; j < NKinets; j++) {
-				for (s = 0; s < markZ99; s++) {
-					KGlobal->bMNK[s] += Traces[j].Iters*Traces[j].Tr[s];
-					for (p = s; p < markZ99; p++)
-						KGlobal->aMNK[s][p] += Traces[j].Tr[p]*Traces[j].Tr[s];
-				}
-			}
-			for (s = 0; s < markZ99; s++) {
-				for (p = s; p < markZ99; p++)
-					KGlobal->aMNK[p][s] = KGlobal->aMNK[s][p];
-			}
-
-			for (s = 0; s < markZ99; s++) {
-				float pp = fabsf(KGlobal->bMNK[s]);
-				for (p = 0; p < markZ99; p++) {
-					float p1 = fabsf(KGlobal->aMNK[s][p]);
-					if (p1 > pp) pp = p1;
-				}
-				if (pp > 1.0f) {
-					for (p = 0; p < markZ99; p++)
-						KGlobal->aMNK[s][p] /= pp;
-					KGlobal->bMNK[s] /= pp;
-				}
-			}
-
-			for (k = 0; k < 5; k++) {
-				float alpha = 0.02f;
-				float f = 0.0f;
-				for (s = 0; s < markZ99; s++) {
-					float it = -KGlobal->bMNK[s];
-					for (p = 0; p < markZ99; p++)
-						it += KGlobal->aMNK[s][p]*KGlobal->KinetTraceW[p];
-					f += it*it;
-				}
-				for (j = 0; j < markZ99; j++) {
-					float delta = 0.001f;
-					float f1 = 0.0f;
-
-					KGlobal->KinetTraceW[j] += delta;
-					for (s = 0; s < markZ99; s++) {
-						float it = -KGlobal->bMNK[s];
-						for (p = 0; p < markZ99; p++)
-							it += KGlobal->aMNK[s][p]*KGlobal->KinetTraceW[p];
-						f1 += it*it;
-					}
-					KGlobal->KinetTraceW[j] -= delta;
-					KGlobal->gradMNK[j] = (f1 - f)/delta;
-				}
-				for (s = 0; s < markZ99; s++)
-					KGlobal->KinetTraceW[s] -= alpha*KGlobal->gradMNK[s];
-			}
-		}
-
-		#pragma omp parallel for schedule(guided) private(j,k,s)
-		for (j = 0; j < NKinets; j++) {
-			__global unsigned short int * buf = Traces[j].Tr3;
-			float f, maxt = 0.000000001f;
-			int errs[3];
-			short int ks;
-			signed char nump;
-
-			for (k = 0; k < HistorySize; k++)
-        	            if (Traces[j].Timings[k] > maxt)
-				maxt = Traces[j].Timings[k];
-
-			for (ks = 0; ks < markZ99; ks++) {
-				k = KGlobal->KinetTraceWOrder[ks];
-
-				errs[0] = abs(Traces[j].Prognosed0[k] - Traces[j].Tr[k]);
-				errs[1] = abs(Traces[j].Prognosed1[k] - Traces[j].Tr[k]);
-				errs[2] = abs(Traces[j].Prognosed2[k] - Traces[j].Tr[k]);
-
-				if (errs[0] < errs[1])
-					if (errs[0] < errs[2])
-						nump = 0;
-					else
-						nump = 2;
+void processKinetics(KineticContext * Contexts, KineticGlobal * KGlobal,
+	float * T, float ** Dn, int UseGear, int Method) {
+	if (CMap) {
+		int k = 0;
+		int p;
+		for (int Ptr = 0; Ptr < NX*NY*NZ; Ptr++)
+			if (CMap[Ptr]==Zero) {
+				Contexts[k].LossPrecision = 0;
+				if (T)
+					SetTk(&Contexts[k], T[Ptr]);
 				else
-					if (errs[2] < errs[1])
-						nump = 2;
-					else
-						nump = 1;
+					SetTk(&Contexts[k], KGlobal->DefaultT);
+				for (int i = 0; i < KGlobal->NASubst; i++)
+					Contexts[k].Conc0[i] = Dn[KGlobal->TranMap[i]][Ptr];
 
-				for (s = HistorySize-1; s > 0; s--)
-					Traces[j].Besters[s][k] = Traces[j].Besters[s-1][k];
-				Traces[j].Besters[0][k] = nump;
-
-				if (ks >= (markZ99 / 4) || fabsf(KGlobal->KinetTraceW[k]) <= 1E-6f) {
-					for (s = HistorySize-1; s > 0; s--)
-						Traces[j].Winners[s][k] = Traces[j].Winners[s-1][k];
-					Traces[j].Winners[0][k] = 0;
-
-					Traces[j].Prognosed0[k] = Traces[j].Prognosed1[k] = Traces[j].Prognosed2[k] = Traces[j].Tr[k];
-
-					buf[k] = Traces[j].Tr[k];
-				} else {
-					float Quality[3] = { 0.0f, 0.0f, 0.0f };
-					float W1[3];
-					float Q[3];
-
-					for (s = HistorySize-1; s > 0; s--) {
-						char w = Traces[j].Winners[s][k];
-						float t = Traces[j].Timings[s];
-						float d = t > 1E-9f ? maxt/t : maxt/1E-9f;
-						if (w == Traces[j].Besters[s][k])
-							Quality[w] += d;
-						else
-							Quality[w] -= d;
-					}
-
-					if (Quality[0] > Quality[1])
-						if (Quality[0] > Quality[2])
-							nump = 0;
-						else
-							nump = 2;
-					else
-						if (Quality[2] > Quality[1])
-							nump = 2;
-						else
-							nump = 1;
-
-					GetPredictor(
-						1, Traces[j].Tr3[k], Traces[j].Tr2[k], Traces[j].Tr1[k], Traces[j].Tr[k],
-						&W1[0], &Q[0]
-					);
-					Traces[j].KinetTraceW1[k] = W1[0];
-					Traces[j].KinetTraceQ1[k] = Q[0];
-					f = Traces[j].Tr[k]*W1[0] + Q[0];
-					if (f < 0.0f) Traces[j].Prognosed0[k] = 0;
-					else Traces[j].Prognosed0[k] = (unsigned short int) f;
-
-					GetPredictor(
-						2, Traces[j].Tr3[k], Traces[j].Tr2[k], Traces[j].Tr1[k], Traces[j].Tr[k],
-						&W1[1], &Q[1]
-					);
-					Traces[j].KinetTraceW2[k] = W1[1];
-					Traces[j].KinetTraceQ2[k] = Q[1];
-					f = Traces[j].Tr[k]*W1[1] + Q[1];
-					if (f < 0.0f) Traces[j].Prognosed1[k] = 0;
-					else Traces[j].Prognosed1[k] = (unsigned short int) f;
-
-					GetPredictor(
-						3, Traces[j].Tr3[k], Traces[j].Tr2[k], Traces[j].Tr1[k], Traces[j].Tr[k],
-						&W1[2], &Q[2]
-					);
-					Traces[j].KinetTraceW3[k] = W1[2];
-					Traces[j].KinetTraceQ3[k] = Q[2];
-					f = Traces[j].Tr[k]*W1[2] + Q[2];
-					if (f < 0.0f) Traces[j].Prognosed2[k] = 0;
-					else Traces[j].Prognosed2[k] = (unsigned short int) f;
-
-					for (s = HistorySize-1; s > 0; s--)
-						Traces[j].Winners[s][k] = Traces[j].Winners[s-1][k];
-					Traces[j].Winners[0][k] = nump;
-
-					buf[k] = nump == 0 ? Traces[j].Prognosed0[k] : (nump == 1 ? Traces[j].Prognosed1[k] : Traces[j].Prognosed2[k]);
-				}
+				k++;
 			}
-			Traces[j].Tr3 = Traces[j].Tr2;
-			Traces[j].Tr2 = Traces[j].Tr1;
-			Traces[j].Tr1 = Traces[j].Tr;
-			Traces[j].Tr = buf;
+
+		static unsigned int * Iters = NULL;
+		if (Iters == NULL) {
+			int __rest = k % KinetChunkSize;
+			int _k = __rest ? k + (KinetChunkSize - __rest) : k;
+			Iters = (unsigned int *) malloc(_k*sizeof(unsigned int));
+			memset(Iters, 0, _k*sizeof(unsigned int));
 		}
-	}
-	else { /* !!! */
-		OneTaktKinetic(KGlobal, C, UseGear, Method);
-		if (C->LossPrecision && UseGear) {
-			OneTaktKinetic(KGlobal, C, 0, Method);
+		static int omp_counter = 0;
+		optimized(auto,0.0) vectorized(NULL, omp_counter >= 5, KinetChunkSize)
+		gpu<_global KineticGlobal * KGlobal,
+			_local KineticContext * Contexts,
+			int UseGear,
+			int Method,
+			int p,
+			int k,
+			int omp_counter,
+			_pivot unsigned int Iters[__planned__.k]>
+		for (p = 0; p < k; p++) {
+			OneTaktKinetic(KGlobal, Contexts, UseGear, Method);
+			Iters[p] = Contexts->Iters;
 		}
+		omp_counter++;
+
+		k = 0;
+		for (int Ptr = 0; Ptr < NX*NY*NZ; Ptr++)
+			if (CMap[Ptr]==Zero) {
+				if (!Contexts[k].LossPrecision)
+					for (int i = 0; i < KGlobal->NASubst; i++)
+						Dn[KGlobal->TranMap[i]][Ptr] = Contexts[k].Conc1[i];
+				k++;
+			}
 	}
 }
 
@@ -2359,7 +2121,7 @@ void OneTakt()
 
 #ifdef __PARALLEL__
  SendPacket(RecvCommand, RecvData, SendData, CheckCommand, TAU, NReact);
- /* Посылаем ВСЕ частичные поля, необходимые для обработки: Ux,Uy,Uz,P,T,Nu,Dn */
+ /* ╨Я╨╛╤Б╤Л╨╗╨░╨╡╨╝ ╨Т╨б╨Х ╤З╨░╤Б╤В╨╕╤З╨╜╤Л╨╡ ╨┐╨╛╨╗╤П, ╨╜╨╡╨╛╨▒╤Е╨╛╨┤╨╕╨╝╤Л╨╡ ╨┤╨╗╤П ╨╛╨▒╤А╨░╨▒╨╛╤В╨║╨╕: Ux,Uy,Uz,P,T,Nu,Dn */
  if (RecvData)
     {
      for (i=1; i<nProcs; i++)
@@ -2394,7 +2156,7 @@ void OneTakt()
          CalculateWXY((float **) Vars.Bounds,Area,&WXYZ[i],Vars.Name[PhaseVars[i]._Ux],Vars.Name[PhaseVars[i]._Uy]);
       CalculateWZ((float **) Vars.Bounds,Area,&WXYZ[i],Vars.Name[PhaseVars[i]._Uz],*PhaseVars[i]._Uw, UseOpenMP);
      }
- /* Скопировать турбулентную вязкость в рабочий массив */
+ /* ╨б╨║╨╛╨┐╨╕╤А╨╛╨▓╨░╤В╤М ╤В╤Г╤А╨▒╤Г╨╗╨╡╨╜╤В╨╜╤Г╤О ╨▓╤П╨╖╨║╨╛╤Б╤В╤М ╨▓ ╤А╨░╨▒╨╛╤З╨╕╨╣ ╨╝╨░╤Б╤Б╨╕╨▓ */
  if (PhaseVars[CarrierPhase]._Nu>=0)
     memmove(Dt,Vars.Name[PhaseVars[CarrierPhase]._Nu],BoardSize);
  else
@@ -2577,7 +2339,7 @@ void OneTakt()
 #ifdef __PARALLEL__
  if (CheckCommand==CHK_EndPhase2)
     (*MaxEps) = 0.0;
- /* Принимаем ВСЕ обработанные частичные поля: (Ux,Uy,Uz), P, T, Nu, Dn */
+ /* ╨Я╤А╨╕╨╜╨╕╨╝╨░╨╡╨╝ ╨Т╨б╨Х ╨╛╨▒╤А╨░╨▒╨╛╤В╨░╨╜╨╜╤Л╨╡ ╤З╨░╤Б╤В╨╕╤З╨╜╤Л╨╡ ╨┐╨╛╨╗╤П: (Ux,Uy,Uz), P, T, Nu, Dn */
  if (SendData)
     for (i=1; i<nProcs; i++)
         {
@@ -2701,7 +2463,7 @@ void OneTakt()
 #endif
 
 #ifndef __PARALLEL__
- /* Пересчет частиц-индикаторов */
+ /* ╨Я╨╡╤А╨╡╤Б╤З╨╡╤В ╤З╨░╤Б╤В╨╕╤Ж-╨╕╨╜╨┤╨╕╨║╨░╤В╨╛╤А╨╛╨▓ */
  if (CheckTau && CheckNew) {
     #pragma omp parallel if (UseOpenMP && UseEnhancedOpenMP)
     #pragma omp for schedule(guided) private(i,x,y,z,Ptr)
@@ -2743,44 +2505,27 @@ void OneTakt()
  if (NReact)
     {
      int EnhanceOpenMP = UseOpenMP && UseEnhancedOpenMP && NASubst>0 && (NASubst%nSMP || NASubst>3*nSMP);
-     static int _Iters = 0;
-     int init = _Iters < InitOpenMPIters;
-     TraceWSorter WS[markZ99];
      TIME_STRUCT start, end;
 
      KGlobal.InitH = min(KGlobal.InitH,TAU*0.001f);
-     for (i=0; i<KinetChunkSize; i++)
+     for (i=0; i<NKinets; i++)
          Contexts[i]._EndTime = (float)TAU;
 
      FTIME(&start);
-     qsort(Traces, NKinets, sizeof(Traces[0]), TraceCmp);
-
-     if (KGlobal.KinetTraceWNotFound) {
-        for (i = 0; i < markZ99; i++) {
-            WS[i].Order = i;
-            WS[i].W = KGlobal.KinetTraceW[i];
-        }
-        qsort(WS, markZ99, sizeof(WS[0]), TraceWCmp);
-        for (i = 0; i < markZ99; i++)
-            KGlobal.KinetTraceWOrder[i] = WS[i].Order;
-        KGlobal.KinetTraceWNotFound--;
-     }
 
      if (PhaseVars[CarrierPhase]._T >= 0)
-	 processKinetics(init ? 2 : 1 /* !!! */, 0, 0x7FFFFFFF, NKinets, KinetChunkSize, Traces, Contexts, &KGlobal,
-		Vars.Name[PhaseVars[CarrierPhase]._T], Vars.Dn, UseGear, Adams_Rozhkov_Method, NULL);
+	 processKinetics(Contexts, &KGlobal,
+		Vars.Name[PhaseVars[CarrierPhase]._T], Vars.Dn, UseGear, OTHER_KIN_METHOD);
      else
-	 processKinetics(init ? 2 : 1 /* !!! */, 0, 0x7FFFFFFF, NKinets, KinetChunkSize, Traces, Contexts, &KGlobal,
-		NULL, Vars.Dn, UseGear, Adams_Rozhkov_Method, NULL);
-     _Iters++; /* !!! */
+	 processKinetics(Contexts, &KGlobal,
+		NULL, Vars.Dn, UseGear, OTHER_KIN_METHOD);
      FTIME(&end);
-     KinetTime += DIFFTIME(start, end) - last_compile_time(NULL);
-
-#ifdef __DEBUG__
-     for (i = 0; i < markZ99; i++)
-         printf("%f ", KGlobal.KinetTraceW[KGlobal.KinetTraceWOrder[i]]);
-     printf("\n");
-#endif
+     KinetTime += DIFFTIME(start, end);
+     static int compile_time_accounted = 0;
+     if (!compile_time_accounted) {
+        KinetTime -= last_compile_time(NULL);
+        compile_time_accounted = 1;
+     }
 
      #pragma omp parallel if(EnhanceOpenMP)
      #pragma omp for schedule(dynamic) private(i)
@@ -3211,7 +2956,7 @@ MPI_Request ExchGRAVRequests[4];
 typedef void (* _packer)(float * Buf, int GH);
 typedef void (* _unpacker)(float * Buf);
 
-/* Обмен данными по кольцу процессоров */
+/* ╨Ю╨▒╨╝╨╡╨╜ ╨┤╨░╨╜╨╜╤Л╨╝╨╕ ╨┐╨╛ ╨║╨╛╨╗╤М╤Ж╤Г ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨╛╨▓ */
 void MakeExchange(const char * MSG1, const char * MSG2,
 #ifdef __MPI__
                   MPI_Request * REQUESTS,
@@ -3229,6 +2974,7 @@ void MakeExchange(const char * MSG1, const char * MSG2,
 #endif
 
  DebugPrintf(DEBUG_FILE, MSG1);
+ fflush(DEBUG_FILE);
 #if defined(__MPI__) || defined(__ROUTER__)
  if (UpExchange)   UPACK(HU,GHU);
  if (DownExchange) DPACK(HD,GHD);
@@ -3336,6 +3082,7 @@ void MakeExchange(const char * MSG1, const char * MSG2,
     }
 #endif
  DebugPrintf(DEBUG_FILE, MSG2);
+ fflush(DEBUG_FILE);
 }
 
 SortInfo *  SortedIndex  = NULL;
@@ -3385,7 +3132,7 @@ int InitSpecialBounds(unsigned char * Area, int V1, int V2, int InitPtr)
 
 unsigned int savedIters;
 
-#pragma memoization(t,g,o) lin_extrapolator(150, 2) controlled(50, 1)
+#pragma memoization(t,g,o) lin_extrapolator(150, 2) controlled(20, 1)
 void prognose_load(int counter, unsigned int Index, double Iters[1]) {
    *Iters = savedIters;
 }
@@ -3435,7 +3182,7 @@ void Slave()
 
 #if defined(__MPI__) || defined(__ROUTER__) || defined(__ROUTER_100__)
  REQUEST   Request;
- REQUEST * GearRequests;
+ REQUEST * GearRequests = NULL;
 #endif
  long         TotalLoad;
  long         AverageLoad;
@@ -3651,8 +3398,9 @@ void Slave()
     if (CalculateAll)
        {
         DebugPrintf(DEBUG_FILE,"Wait for work data\n");
+        fflush(DEBUG_FILE);
 #if defined(__MPI__) || defined(__ROUTER__) || defined(__ROUTER_100__)
-        /* Получаем (Ux,Uy,Uz), P, Nu, T */
+        /* ╨Я╨╛╨╗╤Г╤З╨░╨╡╨╝ (Ux,Uy,Uz), P, Nu, T */
         if (Packet.RecvData)
            {
             RecvMaster((byte *) HBuff, (long) NumEqs*(NZ+2)*NX*NY*sizeof(float));
@@ -3677,7 +3425,7 @@ void Slave()
                    else
                       CorrectBounds(Vars.Bounds,&HBuff[BegBoard(i)], NY,NX,NZ, NX,1,NY*NX, DescV, CMap,Area,0, 2, UseOpenMP && (1-UseEnhancedOpenMP));
 	      }
-        /* Инициируем получение Dn */
+        /* ╨Ш╨╜╨╕╤Ж╨╕╨╕╤А╤Г╨╡╨╝ ╨┐╨╛╨╗╤Г╤З╨╡╨╜╨╕╨╡ Dn */
         if (Packet.RecvData && NSubst)
            IRecvMaster((byte *) &HBuff[BegOffs(NumEqs)], (long) NSubst*(NZ+2)*NX*NY*sizeof(float), &Request);
 #else
@@ -3705,6 +3453,7 @@ void Slave()
 	      }
 #endif
         DebugPrintf(DEBUG_FILE,"Work data received\n");
+        fflush(DEBUG_FILE);
         
         switch (Packet.CheckCommand) {
           case CHK_Phase1 :
@@ -3753,11 +3502,14 @@ void Slave()
              if (!PhaseVars[i].IsLight) CalculateWXY(Vars.Bounds,Area,&WXYZ[i],&HBuff[BegBoard(PhaseVars[i]._Ux)],&HBuff[BegBoard(PhaseVars[i]._Uy)],Stage>=NExp);
              CalculateWZ(Vars.Bounds,Area,&WXYZ[i],&HBuff[BegBoard(PhaseVars[i]._Uz)],*PhaseVars[i]._Uw,Stage>=NExp, UseOpenMP);
             }
-        /* Скопировать турбулентную вязкость в рабочий массив */
+        /* ╨б╨║╨╛╨┐╨╕╤А╨╛╨▓╨░╤В╤М ╤В╤Г╤А╨▒╤Г╨╗╨╡╨╜╤В╨╜╤Г╤О ╨▓╤П╨╖╨║╨╛╤Б╤В╤М ╨▓ ╤А╨░╨▒╨╛╤З╨╕╨╣ ╨╝╨░╤Б╤Б╨╕╨▓ */
         if (PhaseVars[CarrierPhase]._Nu>=0)
            memmove(Dt,&HBuff[BegOffs(PhaseVars[CarrierPhase]._Nu)],(NZ+2)*NY*NX*sizeof(float));
         else
            memset(Dt,0,(NZ+2)*NY*NX*sizeof(float));
+
+        DebugPrintf(DEBUG_FILE,"W[x,y,z] calculated\n");
+        fflush(DEBUG_FILE);
 
         SlowMode = 1;
         FastMode = FastTAUDivider==1;
@@ -3776,6 +3528,9 @@ void Slave()
                 &HBuff[BegOffs(PhaseVars[CarrierPhase]._Uy)],
                 &HBuff[BegOffs(PhaseVars[CarrierPhase]._Uz)]);
              CalculateK(&WXYZ[VDefs[i].Phase],Vars.Bounds,HBuff,Kfs,KDn,Sfs,SDn,Stage>=NExp,Area,Boundaries,Maps);
+
+             DebugPrintf(DEBUG_FILE,"DIV and Koeffs calculated\n");
+             fflush(DEBUG_FILE);
 
              if (CheckTau && CheckNew && SlowMode) {
                 const double h  = 1.0;
@@ -3796,6 +3551,8 @@ void Slave()
                         }
 
                 if (CalcBase) {
+                   DebugPrintf(DEBUG_FILE,"Start Euler calculating\n");
+                   fflush(DEBUG_FILE);
                    for (i=0; i<NumEqs; i++)
                        if (VDefs[i].Solver == NULL)
                           EulerCalculate((float **) Vars.Bounds,
@@ -3853,9 +3610,13 @@ void Slave()
 
              if (CalcBase)
               {
+               DebugPrintf(DEBUG_FILE,"Start Process_Z\n");
+               fflush(DEBUG_FILE);
                for (i=0; i<NumEqs; i++)
                    Process_Z(Vars.Bounds,VDefs[i].Solver,i,Kfs[i],Sfs[i],*VDefs[i]._NuMol,*VDefs[i]._Kappa,&WXYZ[VDefs[i].Phase],Maps[i].Map,Area,Boundaries,VDefs[i].Restrict,
                       VDefs[i].Flags,HZreg,VDefs[i].Projection, UseOpenMP);
+               DebugPrintf(DEBUG_FILE,"Start Process_XY\n");
+               fflush(DEBUG_FILE);
                for (i=0; i<NumEqs; i++)
                    {
                     if (!VDefs[i].Solver)
@@ -3867,8 +3628,9 @@ void Slave()
              if (SlowMode)
                 {
 #if defined(__MPI__) || defined(__ROUTER__) || defined(__ROUTER_100__)
-                  /* Ожидаем Dn[i] */
+                  /* ╨Ю╨╢╨╕╨┤╨░╨╡╨╝ Dn[i] */
                  DebugPrintf(DEBUG_FILE,"Wait for substances\n");
+                 fflush(DEBUG_FILE);
                  if (Packet.RecvData && NSubst)
                     {
                      Wait(&Request);
@@ -3877,6 +3639,7 @@ void Slave()
                     }
                  BoundsInitialized = 1;
                  DebugPrintf(DEBUG_FILE,"Substances received\n");
+                 fflush(DEBUG_FILE);
 #endif
                  switch (Packet.CheckCommand) {
                    case CHK_Phase1 :
@@ -3907,6 +3670,9 @@ void Slave()
                  }
                 }
 
+             DebugPrintf(DEBUG_FILE,"Process_Z [Substances]\n");
+             fflush(DEBUG_FILE);
+
              #pragma omp parallel if (EnhanceOpenMP)
              #pragma omp for schedule(dynamic) private(i,j)
              for (j=0;j<NLightSubst;j++)
@@ -3921,6 +3687,9 @@ void Slave()
                   if (SlowMode) CalculateWZ(Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,(double)KGlobal.Uw[i],Stage>=NExp, UseOpenMP);
                   Process_Z(Vars.Bounds,NULL,NumEqs+i,KDn[i],SDn[i],D,0.0,&WXYZ[CarrierPhase],CMap,Area,Boundaries,rsPositive,1,HZreg,0, UseOpenMP);
                  }
+
+             DebugPrintf(DEBUG_FILE,"Process_XY [Substances]\n");
+             fflush(DEBUG_FILE);
 
              if (NSubst && SlowMode && NSubst!=NLightSubst) CalculateWZ(Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,0.0,Stage>=NExp, UseOpenMP);
              #pragma omp parallel if (EnhanceOpenMP)
@@ -3969,8 +3738,14 @@ void Slave()
         if (fmod(ModelTime,60.0)<2.0*TAU)
            GetSolarAngle(ModelTime/3600.0);
 
+        DebugPrintf(DEBUG_FILE,"Continues...\n");
+        fflush(DEBUG_FILE);
+
         if (CheckTau && CheckNew) {
-           /* Пересчет частиц-индикаторов */
+           /* ╨Я╨╡╤А╨╡╤Б╤З╨╡╤В ╤З╨░╤Б╤В╨╕╤Ж-╨╕╨╜╨┤╨╕╨║╨░╤В╨╛╤А╨╛╨▓ */
+           DebugPrintf(DEBUG_FILE,"Indicating Particles recalculation\n");
+           fflush(DEBUG_FILE);
+
            #pragma omp parallel if (UseOpenMP && UseEnhancedOpenMP)
            #pragma omp for schedule(guided) private(i,x,y,z,Ptr)
            for (i = 0; i < NParts; i++) {
@@ -4006,9 +3781,9 @@ void Slave()
                      Vars.Parts[1][i] = NewY;
                      Vars.Parts[2][i] = BaseZ + NewZ;
                      if (NewZ < 1.0)
-                        Vars.Parts[0][i] = -Vars.Parts[0][i]; /* Это признак того, что частица улетит вниз из области этого процессора */
+                        Vars.Parts[0][i] = -Vars.Parts[0][i]; /* ╨н╤В╨╛ ╨┐╤А╨╕╨╖╨╜╨░╨║ ╤В╨╛╨│╨╛, ╤З╤В╨╛ ╤З╨░╤Б╤В╨╕╤Ж╨░ ╤Г╨╗╨╡╤В╨╕╤В ╨▓╨╜╨╕╨╖ ╨╕╨╖ ╨╛╨▒╨╗╨░╤Б╤В╨╕ ╤Н╤В╨╛╨│╨╛ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨░ */
                      else if (NewZ >= NZs)
-                        Vars.Parts[1][i] = -Vars.Parts[1][i]; /* Это признак того, что частица улетит вверх из области этого процессора */
+                        Vars.Parts[1][i] = -Vars.Parts[1][i]; /* ╨н╤В╨╛ ╨┐╤А╨╕╨╖╨╜╨░╨║ ╤В╨╛╨│╨╛, ╤З╤В╨╛ ╤З╨░╤Б╤В╨╕╤Ж╨░ ╤Г╨╗╨╡╤В╨╕╤В ╨▓╨▓╨╡╤А╤Е ╨╕╨╖ ╨╛╨▒╨╗╨░╤Б╤В╨╕ ╤Н╤В╨╛╨│╨╛ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨░ */
                   }
                }
            }
@@ -4021,25 +3796,32 @@ void Slave()
                         PackPARTSForDownExchange, UnPackPARTSAfterDownExchange,
                         UsizeG,DsizeG,GHUG,GHDG);
            DebugPrintf(DEBUG_FILE, "%i particles-indicators detected\n", NParts);
+           fflush(DEBUG_FILE);
         }
        }
 
     if (NReact)
        {
+        DebugPrintf(DEBUG_FILE,"Start kinetics...\n");
+        fflush(DEBUG_FILE);
+
         KGlobal.InitH   = min(KGlobal.InitH,TAU*0.001f);
         for (i=0; i<nSMP; i++)
             Contexts[i]._EndTime = (float)TAU;
 
         if (UseGear)
            {
+            DebugPrintf(DEBUG_FILE,"Balancing\n");
+            fflush(DEBUG_FILE);
+
             WorkLoad[SlaveID] = 0;
-            /* Подсчитываем "свою" суммарную загрузку */
+            /* ╨Я╨╛╨┤╤Б╤З╨╕╤В╤Л╨▓╨░╨╡╨╝ "╤Б╨▓╨╛╤О" ╤Б╤Г╨╝╨╝╨░╤А╨╜╤Г╤О ╨╖╨░╨│╤А╤Г╨╖╨║╤Г */
             if (CalculateAll)
                for (Count=0; Count<ZeroNodes; Count++)
                    WorkLoad[SlaveID] += SortedIndex[Count].Iters;
-            /* Передаем значение "своей" суммарной загрузки всем остальным */
+            /* ╨Я╨╡╤А╨╡╨┤╨░╨╡╨╝ ╨╖╨╜╨░╤З╨╡╨╜╨╕╨╡ "╤Б╨▓╨╛╨╡╨╣" ╤Б╤Г╨╝╨╝╨░╤А╨╜╨╛╨╣ ╨╖╨░╨│╤А╤Г╨╖╨║╨╕ ╨▓╤Б╨╡╨╝ ╨╛╤Б╤В╨░╨╗╤М╨╜╤Л╨╝ */
 #ifdef __MPI__
-            MPI_Allgather(MPI_IN_PLACE, sizeof(long), MPI_BYTE,
+            MPI_Allgather(&WorkLoad[SlaveID], sizeof(long), MPI_BYTE,
                           WorkLoad, sizeof(long), MPI_BYTE,
                           SlavesComm);
 #else
@@ -4053,14 +3835,14 @@ void Slave()
                 else
                    RecvNeighbour(i, (byte *) &WorkLoad[i], sizeof(long));
 #endif
-            /* Подсчитываем тотальную загрузку */
+            /* ╨Я╨╛╨┤╤Б╤З╨╕╤В╤Л╨▓╨░╨╡╨╝ ╤В╨╛╤В╨░╨╗╤М╨╜╤Г╤О ╨╖╨░╨│╤А╤Г╨╖╨║╤Г */
             TotalLoad = 0;
             for (i=0; i<TotalProcs-1; i++)
                 TotalLoad += WorkLoad[i];
             AverageLoad = 1 + TotalLoad/(TotalProcs-1);
             DeltaLoad   = 1 + TotalLoad/1000;
 
-            /* Определяем принимающие и передающие процессоры */
+            /* ╨Ю╨┐╤А╨╡╨┤╨╡╨╗╤П╨╡╨╝ ╨┐╤А╨╕╨╜╨╕╨╝╨░╤О╤Й╨╕╨╡ ╨╕ ╨┐╨╡╤А╨╡╨┤╨░╤О╤Й╨╕╨╡ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╤Л */
             NumSenders   = 0;
             NumReceivers = 0;
             GearSenderFlag   = 0;
@@ -4085,13 +3867,13 @@ void Slave()
                            GearReceiverFlag = 1;
                        }
                 }
-            /* Сортируем передающие и принимающие процессоры по убыванию дисбаланса */
+            /* ╨б╨╛╤А╤В╨╕╤А╤Г╨╡╨╝ ╨┐╨╡╤А╨╡╨┤╨░╤О╤Й╨╕╨╡ ╨╕ ╨┐╤А╨╕╨╜╨╕╨╝╨░╤О╤Й╨╕╨╡ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╤Л ╨┐╨╛ ╤Г╨▒╤Л╨▓╨░╨╜╨╕╤О ╨┤╨╕╤Б╨▒╨░╨╗╨░╨╜╤Б╨░ */
             if (NumSenders>1)
                qsort(Senders,NumSenders,sizeof(_ProcessorLoad),ProcessorLoadCmp);
             if (NumReceivers>1)
                qsort(Receivers,NumReceivers,sizeof(_ProcessorLoad),ProcessorLoadCmp);
 
-            /* Создаем список транзакций */
+            /* ╨б╨╛╨╖╨┤╨░╨╡╨╝ ╤Б╨┐╨╕╤Б╨╛╨║ ╤В╤А╨░╨╜╨╖╨░╨║╤Ж╨╕╨╣ */
             NumTransactions = 0;
             SenderCount     = 0;
             ReceiverCount   = 0;
@@ -4121,9 +3903,12 @@ void Slave()
                          Transactions[NumTransactions++].Load = CurLoad;
                         }
                   }
-            /* Сортируем транзакции по возрастанию номеров процессоров */
+            /* ╨б╨╛╤А╤В╨╕╤А╤Г╨╡╨╝ ╤В╤А╨░╨╜╨╖╨░╨║╤Ж╨╕╨╕ ╨┐╨╛ ╨▓╨╛╨╖╤А╨░╤Б╤В╨░╨╜╨╕╤О ╨╜╨╛╨╝╨╡╤А╨╛╨▓ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨╛╨▓ */
             if (NumTransactions>1)
                qsort(Transactions,NumTransactions,sizeof(_ProcessorLoad),TransactionCmp);
+
+            DebugPrintf(DEBUG_FILE,"Balancing exchanges\n");
+            fflush(DEBUG_FILE);
 
             for (i=0; i<NumTransactions; i++)
                 if (GearSenderFlag)
@@ -4134,7 +3919,7 @@ void Slave()
                     Longs[CurProc] = 0;
                     Ptr            = 0;
 
-                    /* Составляем списки узлов, которые будут отправлены на обработку */
+                    /* ╨б╨╛╤Б╤В╨░╨▓╨╗╤П╨╡╨╝ ╤Б╨┐╨╕╤Б╨║╨╕ ╤Г╨╖╨╗╨╛╨▓, ╨║╨╛╤В╨╛╤А╤Л╨╡ ╨▒╤Г╨┤╤Г╤В ╨╛╤В╨┐╤А╨░╨▓╨╗╨╡╨╜╤Л ╨╜╨░ ╨╛╨▒╤А╨░╨▒╨╛╤В╨║╤Г */
                     for (Count = 0; CurLoad>0 && Count<ZeroNodes; Count++)
                         if (SortedIndex[Count].Iters)
                            if (SortedIndex[Count].Iters<=CurLoad)
@@ -4159,12 +3944,12 @@ void Slave()
                                   Buffers[CurProc][Ptr++] = (float)KGlobal.DefaultT;
                                SortedIndex[Count].Iters = 0;
                               }
-                    /* Отправляем узлы списком */
+                    /* ╨Ю╤В╨┐╤А╨░╨▓╨╗╤П╨╡╨╝ ╤Г╨╖╨╗╤Л ╤Б╨┐╨╕╤Б╨║╨╛╨╝ */
                     SendNeighbour(CurProc,(byte *) &Longs[CurProc], sizeof(unsigned int));
                     if (Longs[CurProc])
                        SendNeighbour(CurProc,(byte *) Buffers[CurProc],Longs[CurProc]*(NASubst+1)*sizeof(float));
 #if defined(__MPI__) || defined(__ROUTER__) || defined(__ROUTER_100__)
-                    /* Сразу инициируем прием обработанного списка узлов */
+                    /* ╨б╤А╨░╨╖╤Г ╨╕╨╜╨╕╤Ж╨╕╨╕╤А╤Г╨╡╨╝ ╨┐╤А╨╕╨╡╨╝ ╨╛╨▒╤А╨░╨▒╨╛╤В╨░╨╜╨╜╨╛╨│╨╛ ╤Б╨┐╨╕╤Б╨║╨░ ╤Г╨╖╨╗╨╛╨▓ */
                     if (Longs[CurProc])
                        IRecvNeighbour(CurProc,(byte *) Buffers[CurProc],
                            Longs[CurProc]*(NASubst+1)*sizeof(float),
@@ -4176,7 +3961,7 @@ void Slave()
                       {
                        CurProc = Transactions[i].Index;
 
-                       /* Принимаем узлы списком */
+                       /* ╨Я╤А╨╕╨╜╨╕╨╝╨░╨╡╨╝ ╤Г╨╖╨╗╤Л ╤Б╨┐╨╕╤Б╨║╨╛╨╝ */
                        RecvNeighbour(CurProc,(byte *) &Longs[CurProc], sizeof(unsigned int));
                        if (Longs[CurProc]>MaxLongs[CurProc])
                           {
@@ -4197,6 +3982,9 @@ void Slave()
                           RecvNeighbour(CurProc,(byte *) Buffers[CurProc],Longs[CurProc]*(NASubst+1)*sizeof(float));
 #endif
                       }
+
+            DebugPrintf(DEBUG_FILE,"Real kinetic's [own] calculation\n");
+            fflush(DEBUG_FILE);
 
             RealLoad = 0;
             WCount = 0;
@@ -4225,7 +4013,7 @@ void Slave()
                        for (i=0; i<NASubst; i++)
                            CC->Conc0[i] = HBuff[OffsBufDn(KGlobal.TranMap[i])+Ptr];
 
-                       OneTaktKinetic(&KGlobal,CC,UseGear,Adams_Rozhkov_Method);
+                       OneTaktKinetic(&KGlobal,CC,UseGear,OTHER_KIN_METHOD);
                        #pragma omp critical
                          _WCount = WCount++;
                        _SortedIndex[_WCount].Index = Ptr;
@@ -4243,14 +4031,17 @@ void Slave()
                       }
                memmove(SortedIndex,_SortedIndex,WCount*sizeof(SortInfo));
               }
+            DebugPrintf(DEBUG_FILE,"Real kinetic's [received for balance] calculation\n");
+            fflush(DEBUG_FILE);
+
             for (i=0; i<NumTransactions; i++)
                 {
                  CurProc = Transactions[i].Index;
 
 #if defined(__MPI__) || defined(__ROUTER__) || defined(__ROUTER_100__)
-                 /* Ожидаем прихода сообщения: */
-                 /*     GearSender   - обработанного списка узлов */
-                 /*     GearReceiver - списка узлов для обработки */
+                 /* ╨Ю╨╢╨╕╨┤╨░╨╡╨╝ ╨┐╤А╨╕╤Е╨╛╨┤╨░ ╤Б╨╛╨╛╨▒╤Й╨╡╨╜╨╕╤П: */
+                 /*     GearSender   - ╨╛╨▒╤А╨░╨▒╨╛╤В╨░╨╜╨╜╨╛╨│╨╛ ╤Б╨┐╨╕╤Б╨║╨░ ╤Г╨╖╨╗╨╛╨▓ */
+                 /*     GearReceiver - ╤Б╨┐╨╕╤Б╨║╨░ ╤Г╨╖╨╗╨╛╨▓ ╨┤╨╗╤П ╨╛╨▒╤А╨░╨▒╨╛╤В╨║╨╕ */
                  if (Longs[CurProc])
                     Wait(&GearRequests[i]);
 #endif
@@ -4276,7 +4067,7 @@ void Slave()
                               CC->Conc0[j] = Buffers[CurProc][Ptr++];
                           SetTk(CC,Buffers[CurProc][Ptr++]);
 
-                          OneTaktKinetic(&KGlobal,CC,UseGear,Adams_Rozhkov_Method);
+                          OneTaktKinetic(&KGlobal,CC,UseGear,OTHER_KIN_METHOD);
                           Buffers[CurProc][WPtr+NASubst] = CC->Iters+1.0f;
                           addRealLoad += CC->Iters+1;
 
@@ -4297,7 +4088,7 @@ void Slave()
                     if (GearSenderFlag)
                        {
 #if !defined(__MPI__) && !defined(__ROUTER__)  && !defined(__ROUTER_100__)
-                        /* При работе с MPI/Router обработанный список узлов уже принят */
+                        /* ╨Я╤А╨╕ ╤А╨░╨▒╨╛╤В╨╡ ╤Б MPI/Router ╨╛╨▒╤А╨░╨▒╨╛╤В╨░╨╜╨╜╤Л╨╣ ╤Б╨┐╨╕╤Б╨╛╨║ ╤Г╨╖╨╗╨╛╨▓ ╤Г╨╢╨╡ ╨┐╤А╨╕╨╜╤П╤В */
                         if (Longs[CurProc])
                            RecvNeighbour(CurProc,(byte *) Buffers[CurProc],Longs[CurProc]*(NASubst+1)*sizeof(float));
 #endif
@@ -4312,7 +4103,11 @@ void Slave()
                 }
             /* !!!!! */
             DebugPrintf(DEBUG_FILE,"Slave%i : PredictedLoad(%li) & RealLoad(%li)\n",SlaveID,AverageLoad,RealLoad);
+            fflush(DEBUG_FILE);
             /* !!!!! */
+
+            DebugPrintf(DEBUG_FILE,"Kinetic's load prediction\n");
+            fflush(DEBUG_FILE);
 
             if (CalculateAll) {
                static int counter = 0;
@@ -4334,7 +4129,7 @@ void Slave()
             }
            }
         else
-          if (CalculateAll) {
+          if (CalculateAll)
              #pragma omp parallel if(UseOpenMP)
              #pragma omp for schedule(dynamic,OMP_KineticChunk) private(i,z,y,x,Ptr)
                for (Ptr=0; Ptr<NX*NY*NZ; Ptr++)
@@ -4353,7 +4148,7 @@ void Slave()
                        for (i=0;i<NASubst;i++)
                            CC->Conc0[i] = HBuff[OffsBufDn(KGlobal.TranMap[i])+Ptr];
 
-                       OneTaktKinetic(&KGlobal,CC,UseGear,Adams_Rozhkov_Method);
+                       OneTaktKinetic(&KGlobal,CC,UseGear,OTHER_KIN_METHOD);
 
                        if (!CC->LossPrecision)
                           for (i=0;i<NASubst;i++)
@@ -4368,7 +4163,9 @@ void Slave()
                            fflush(StdOutput);
                           }
                       }
-          }
+
+        DebugPrintf(DEBUG_FILE,"Kinetics stopped\n");
+        fflush(DEBUG_FILE);
 
         if (CalculateAll)
            {
@@ -4395,7 +4192,8 @@ void Slave()
                  memmove(&HBuff[i*PartL*NX*NY],&HBuff[(i*(NZ+2)+FromOffs)*NY*NX],PartL*NX*NY*sizeof(float));
                 }
             SendMasterXXXTag((byte *) HBuff, (long) (NSubst+NumEqs)*PartL*NX*NY*sizeof(float));
-            DebugPrintf(DEBUG_FILE,"Result sended to Master\n");
+            DebugPrintf(DEBUG_FILE,"Result sent to Master\n");
+            fflush(DEBUG_FILE);
             for (i=NumEqs+NSubst-1; i>=0; i--)
                 {
                  memmove(&HBuff[(i*(NZ+2)+FromOffs)*NY*NX],&HBuff[i*PartL*NX*NY],PartL*NX*NY*sizeof(float));
@@ -4451,7 +4249,7 @@ void Slave()
                 for (i=0; i<NExp; i++)
                     KQ[i] = InitKQ;
                 Min = CalcPredictErr(CheckTrace,1E+10,KQ,0,0.0);
-                /* Вычисляем антиградиент */
+                /* ╨Т╤Л╤З╨╕╤Б╨╗╤П╨╡╨╝ ╨░╨╜╤В╨╕╨│╤А╨░╨┤╨╕╨╡╨╜╤В */
                 for (i=NExp-1; i>=0; i--)
                     {
                      double MinusV = CalcPredictErr(CheckTrace,Min,KQ,i,-StepKQ);
@@ -4470,7 +4268,7 @@ void Slave()
                      else AntiGrad[i] = 0.0;
                      KQ[i] += AntiGrad[i];
                     }
-                /* Спуск по антиградиенту */
+                /* ╨б╨┐╤Г╤Б╨║ ╨┐╨╛ ╨░╨╜╤В╨╕╨│╤А╨░╨┤╨╕╨╡╨╜╤В╤Г */
                 while (Flag)
                   for (i=NExp-1, Flag=0; i>=0; i--)
                       if (AntiGrad[i]!=0.0)
@@ -4489,6 +4287,7 @@ void Slave()
                 for (i=0; i<NExp; i++)
                     DebugPrintf(DEBUG_FILE,"%lf ",KQ[i]);
                 DebugPrintf(DEBUG_FILE,"\n");
+                fflush(DEBUG_FILE);
                }
            }
         if (AllowQW && Stage==NExp+NPred-1)
@@ -4506,6 +4305,7 @@ void Slave()
     if (Packet._RecvCommand)
        RecvCommand(&Command);
     DebugPrintf(DEBUG_FILE,"End of current iteration\n");
+    fflush(DEBUG_FILE);
    }
  while (Command);
 
@@ -4712,7 +4512,7 @@ unsigned char * RecvMap(int FirstFlag, int LastFlag, unsigned char * AreaMap,
     }
  if (AreaMap)
     {
-     /* Корректируем карту, определяя, где необходим обмен */
+     /* ╨Ъ╨╛╤А╤А╨╡╨║╤В╨╕╤А╤Г╨╡╨╝ ╨║╨░╤А╤В╤Г, ╨╛╨┐╤А╨╡╨┤╨╡╨╗╤П╤П, ╨│╨┤╨╡ ╨╜╨╡╨╛╨▒╤Е╨╛╨┤╨╕╨╝ ╨╛╨▒╨╝╨╡╨╜ */
      if (!FirstFlag)
         for (y=0, Ptr=0; y<NY; y++)
             for (x=0; x<NX; x++,Ptr++)
@@ -4898,7 +4698,6 @@ void AddVars()
  AddVar(NULL,"Tn",ffltT,0,0,1,BeforeAnyRPrm,NULL,NULL,0,0,2);
  AddVar(NULL,"Reaction",usrT,0,0,0,BeforeAnyRPrm,HandleReaction,NULL,0,0,2);
  AddVar(&UseGear,"UseGear",intT,1,1,1,NULL,NULL,NULL,0,0,2);
- AddVar(&SetSteadyKinetics,"SetSteady",intT,1,1,1,NULL,NULL,NULL,1,1,2); /* !!! */
  AddVar(&CheckTau,"CheckTau",intT,1,1,1,NULL,NULL,NULL,0,0,3);
  AddVar(&MaxTau,"MaxTau",fltT,1,1,1,NULL,NULL,NULL,0,0,3);
  AddVar(&DecreaseOnly,"DecreaseOnly",intT,1,1,1,NULL,NULL,NULL,0,0,3);
@@ -5002,7 +4801,7 @@ void CreateSavFile(FILE ** SavFile, _int maxtakt, int Quant, int takt, int SaveH
     }
 }
 
-/* Головная программа */
+/* ╨У╨╛╨╗╨╛╨▓╨╜╨░╤П ╨┐╤А╨╛╨│╤А╨░╨╝╨╝╨░ */
 #if defined(__MPI__) || defined(__ROUTER_100__)
 int main(int argc, char ** argv)
 #else
@@ -5026,9 +4825,9 @@ int main(void)
  unsigned char * OrgnArea;
  int  i,j,x,y,z;
  int  Ptr;
- _int maxtakt; /* Число итераций */
- _int Cadres = 0;       /* Счетчик записываемых кадров */
- int  Quant;            /* Размер кадра в итерациях */
+ _int maxtakt; /* ╨з╨╕╤Б╨╗╨╛ ╨╕╤В╨╡╤А╨░╤Ж╨╕╨╣ */
+ _int Cadres = 0;       /* ╨б╤З╨╡╤В╤З╨╕╨║ ╨╖╨░╨┐╨╕╤Б╤Л╨▓╨░╨╡╨╝╤Л╤Е ╨║╨░╨┤╤А╨╛╨▓ */
+ int  Quant;            /* ╨а╨░╨╖╨╝╨╡╤А ╨║╨░╨┤╤А╨░ ╨▓ ╨╕╤В╨╡╤А╨░╤Ж╨╕╤П╤Е */
  int  QuantCount;
  int  TimeCounter = 0;
  int  Command;
@@ -5059,23 +4858,20 @@ int main(void)
  StdOutput = stdout;
 #endif
 
- KGlobal.MaxIterations = 1000;
- KGlobal.InitTime = 0.0f; /* Начальное время интегрирования */
- KGlobal.CalcEps = 1E-2f; /* Относительная точность интегрирования ST1/eps */
- KGlobal.MinH = 1.0E-18f;/* Минимальный шаг интегрирования ST1/hmin */
+ setlocale(LC_ALL, "en-US.UTF-8");
+
+ KGlobal.MaxIterations = 300000; /* ╨Ь╨░╨║╤Б╨╕╨╝╨░╨╗╤М╨╜╨╛╨╡ ╤З╨╕╤Б╨╗╨╛ ╨╕╤В╨╡╤А╨░╤Ж╨╕╨╣ */
+
+ KGlobal.InitTime = 0.0f; /* ╨Э╨░╤З╨░╨╗╤М╨╜╨╛╨╡ ╨▓╤А╨╡╨╝╤П ╨╕╨╜╤В╨╡╨│╤А╨╕╤А╨╛╨▓╨░╨╜╨╕╤П */
+ KGlobal.CalcEps = 1E-2f; /* ╨Ю╤В╨╜╨╛╤Б╨╕╤В╨╡╨╗╤М╨╜╨░╤П ╤В╨╛╤З╨╜╨╛╤Б╤В╤М ╨╕╨╜╤В╨╡╨│╤А╨╕╤А╨╛╨▓╨░╨╜╨╕╤П ST1/eps */
+ KGlobal.MinH = 1.0E-18f;/* ╨Ь╨╕╨╜╨╕╨╝╨░╨╗╤М╨╜╤Л╨╣ ╤И╨░╨│ ╨╕╨╜╤В╨╡╨│╤А╨╕╤А╨╛╨▓╨░╨╜╨╕╤П ST1/hmin */
 
  KGlobal.DefaultT = 27.0f;
 
- KGlobal.InitH = 1E-7f;  /* Начальный шаг интегрирования h */
+ KGlobal.InitH = 1E-7f;  /* ╨Э╨░╤З╨░╨╗╤М╨╜╤Л╨╣ ╤И╨░╨│ ╨╕╨╜╤В╨╡╨│╤А╨╕╤А╨╛╨▓╨░╨╜╨╕╤П h */
 
  KGlobal.AdamsOrder = 4;
  KGlobal.Fail = 0;
-
- KGlobal.KinetTraceWNotFound = 7;
- for (Ptr = 0; Ptr < markZ99; Ptr++) {
-     KGlobal.KinetTraceW[Ptr] = 0.0f;
-     KGlobal.KinetTraceWOrder[Ptr] = Ptr;
- }
 
 #ifdef __PARALLEL__
 
@@ -5138,7 +4934,8 @@ int main(void)
      AbortServer(1);
     }
  DebugPrintf(DEBUG_FILE,"Initialised\n");
- /* Устанавливаем подтопологию "звезда" */
+ fflush(DEBUG_FILE);
+ /* ╨г╤Б╤В╨░╨╜╨░╨▓╨╗╨╕╨▓╨░╨╡╨╝ ╨┐╨╛╨┤╤В╨╛╨┐╨╛╨╗╨╛╨│╨╕╤О "╨╖╨▓╨╡╨╖╨┤╨░" */
  #ifdef __MPI2REENT__
  sprintf(CurName,"MPI2REENT-%i",MyProcID);
  #elif !defined(__ROUTER_100__)
@@ -5196,14 +4993,6 @@ int main(void)
 #else
  nSMP = omp_get_num_procs();
 #endif
-#ifdef __PARALLEL__
- Contexts = (KineticContext *) malloc(nSMP*sizeof(KineticContext));
-#else
- Contexts = (KineticContext *) malloc(imax(KinetChunkSize,nSMP)*sizeof(KineticContext));
-#endif
-#else
- KinetChunkSize = 1;
- Contexts = (KineticContext *) malloc(sizeof(KineticContext));
 #endif
 
  InitVars();
@@ -5216,6 +5005,7 @@ int main(void)
 #endif
 #ifndef __MVS__
      fprintf(StdOutput,"Input configuration file name = ");
+     fflush(StdOutput);
 #else
      fprintf(StdOutput,"Program started\n");
      fflush(StdOutput);
@@ -5236,11 +5026,12 @@ int main(void)
 
 #ifndef __MVS__
          fprintf(StdOutput,"Do you wish to change Params (1=Yes/0=No) : ");
+         fflush(StdOutput);
 #endif
          if (StdInput==stdin) {
             char _CRLF[51] = "";
 	    i = scanf("%u",&ChangeParams);
-            fgets(_CRLF, 50, stdin);
+            fgets(_CRLF, sizeof(_CRLF), stdin);
 	 } else {
             char _CRLF[51] = "";
             i = fscanf(StdInput,"%u",&ChangeParams);
@@ -5313,8 +5104,8 @@ int main(void)
      NParts = TotalNParts;
 
 #ifdef __PARALLEL__
- /* Определяем режимы работы процессоров */
- /* Должно быть не менее чем 2 ряда узлов на процессор */
+ /* ╨Ю╨┐╤А╨╡╨┤╨╡╨╗╤П╨╡╨╝ ╤А╨╡╨╢╨╕╨╝╤Л ╤А╨░╨▒╨╛╤В╤Л ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨╛╨▓ */
+ /* ╨Ф╨╛╨╗╨╢╨╜╨╛ ╨▒╤Л╤В╤М ╨╜╨╡ ╨╝╨╡╨╜╨╡╨╡ ╤З╨╡╨╝ 2 ╤А╤П╨┤╨░ ╤Г╨╖╨╗╨╛╨▓ ╨╜╨░ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А */
      MaxDivision = NZ/(nProcs-1);
      if (Division[0])
         {
@@ -5354,9 +5145,9 @@ int main(void)
      z = 0;
      for (i=1; i<TotalProcs; i++)
          {
-          /* Отсылаем процессорам информацию о числе основных процессоров */
+          /* ╨Ю╤В╤Б╤Л╨╗╨░╨╡╨╝ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨░╨╝ ╨╕╨╜╤Д╨╛╤А╨╝╨░╤Ж╨╕╤О ╨╛ ╤З╨╕╤Б╨╗╨╡ ╨╛╤Б╨╜╨╛╨▓╨╜╤Л╤Е ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨╛╨▓ */
           SendSlave(i-1,(byte *) &nProcs,sizeof(nProcs));
-          /* Отсылаем рабочим процессорам типы режимов работы */
+          /* ╨Ю╤В╤Б╤Л╨╗╨░╨╡╨╝ ╤А╨░╨▒╨╛╤З╨╕╨╝ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨░╨╝ ╤В╨╕╨┐╤Л ╤А╨╡╨╢╨╕╨╝╨╛╨▓ ╤А╨░╨▒╨╛╤В╤Л */
           Command = (i<nProcs);
           SendSlave(i-1,(byte *) &Command,sizeof(Command));
 
@@ -5386,12 +5177,12 @@ int main(void)
          fprintf(StdOutput,"Config: 'Division' array: sum of block sizes is greater than area size\n");
          fflush(StdOutput);
         }
- /* Посылаем ВСЕМ рабочим процессорам прочитанные параметры эксперимента */
+ /* ╨Я╨╛╤Б╤Л╨╗╨░╨╡╨╝ ╨Т╨б╨Х╨Ь ╤А╨░╨▒╨╛╤З╨╕╨╝ ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨░╨╝ ╨┐╤А╨╛╤З╨╕╤В╨░╨╜╨╜╤Л╨╡ ╨┐╨░╤А╨░╨╝╨╡╤В╤А╤Л ╤Н╨║╤Б╨┐╨╡╤А╨╕╨╝╨╡╨╜╤В╨░ */
      for (i=1; i<TotalProcs; i++)
          {
           SendSlave(i-1,(byte *) &NX,sizeof(NX));
           SendSlave(i-1,(byte *) &NY,sizeof(NY));
-          /* Вместо реального NZ отсылаем размер соответствующего участка */
+          /* ╨Т╨╝╨╡╤Б╤В╨╛ ╤А╨╡╨░╨╗╤М╨╜╨╛╨│╨╛ NZ ╨╛╤В╤Б╤Л╨╗╨░╨╡╨╝ ╤А╨░╨╖╨╝╨╡╤А ╤Б╨╛╨╛╤В╨▓╨╡╤В╤Б╤В╨▓╤Г╤О╤Й╨╡╨│╨╛ ╤Г╤З╨░╤Б╤В╨║╨░ */
           SendSlave(i-1,(byte *) &LengthGrid[i-1],sizeof(LengthGrid[i-1]));
           SendSlave(i-1,(byte *) &FromGrid[i-1],sizeof(int));
           SendSlave(i-1,(byte *) &TotalNParts,sizeof(TotalNParts));
@@ -5425,9 +5216,10 @@ int main(void)
              }
          }
      DebugPrintf(DEBUG_FILE,"Base information sended\n");
+     fflush(DEBUG_FILE);
     }
  else
- /* Принимаем от мастера прочитанные параметры эксперимента */
+ /* ╨Я╤А╨╕╨╜╨╕╨╝╨░╨╡╨╝ ╨╛╤В ╨╝╨░╤Б╤В╨╡╤А╨░ ╨┐╤А╨╛╤З╨╕╤В╨░╨╜╨╜╤Л╨╡ ╨┐╨░╤А╨░╨╝╨╡╤В╤А╤Л ╤Н╨║╤Б╨┐╨╡╤А╨╕╨╝╨╡╨╜╤В╨░ */
     {
      RecvMaster((byte *) &nProcs,sizeof(nProcs));
 
@@ -5473,6 +5265,7 @@ int main(void)
          RecvMaster((byte *) KGlobal.LR,NReact*sizeof(Reaction));
         }
      DebugPrintf(DEBUG_FILE,"Base information received\n");
+     fflush(DEBUG_FILE);
      if (CalculateAll)
         InitParameters();
 
@@ -5503,12 +5296,12 @@ int main(void)
  if (MasterFlag)
     {
 #endif
-     /* Вычисляемые данные (текущая итерация) */
+     /* ╨Т╤Л╤З╨╕╤Б╨╗╤П╨╡╨╝╤Л╨╡ ╨┤╨░╨╜╨╜╤Л╨╡ (╤В╨╡╨║╤Г╤Й╨░╤П ╨╕╤В╨╡╤А╨░╤Ж╨╕╤П) */
      for (i=0; i<NumEqs; i++) {
          Vars.Name[i]  = (float *) SafeMalloc(BoardSize);
          Vars.eName[i] = CheckTau == 0 ? NULL : (float *) SafeMalloc(BoardSize);
      }
-     /* Вещества */
+     /* ╨Т╨╡╤Й╨╡╤Б╤В╨▓╨░ */
      Vars.Dn  = NSubst==0 ? NULL : (float **) SafeMalloc(NSubst*sizeof(float *));
      Vars.eDn = NSubst==0 ? NULL : (float **) SafeMalloc(NSubst*sizeof(float *));
 
@@ -5526,9 +5319,9 @@ int main(void)
    if (CalculateAll)
       {
 #endif
-       Dt  = (float *) SafeMalloc(TempBoardSize); /* Турбулентная вязкость */
+       Dt  = (float *) SafeMalloc(TempBoardSize); /* ╨в╤Г╤А╨▒╤Г╨╗╨╡╨╜╤В╨╜╨░╤П ╨▓╤П╨╖╨║╨╛╤Б╤В╤М */
 
-       /* Коэффициенты,определяющие вхождение противоточных производных в решение */
+       /* ╨Ъ╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╤Л,╨╛╨┐╤А╨╡╨┤╨╡╨╗╤П╤О╤Й╨╕╨╡ ╨▓╤Е╨╛╨╢╨┤╨╡╨╜╨╕╨╡ ╨┐╤А╨╛╤В╨╕╨▓╨╛╤В╨╛╤З╨╜╤Л╤Е ╨┐╤А╨╛╨╕╨╖╨▓╨╛╨┤╨╜╤Л╤Е ╨▓ ╤А╨╡╤И╨╡╨╜╨╕╨╡ */
        for (i=0; i<NumPhases; i++)
            {
             WXYZ[i].WX1 = PhaseVars[i].IsLight ? WXYZ[CarrierPhase].WX1 : (float *) SafeMalloc(BoardSize);
@@ -5539,7 +5332,7 @@ int main(void)
             WXYZ[i].WZ2 = (float *) SafeMalloc(BoardSize);
            }
 
-       /* Коэффициенты */
+       /* ╨Ъ╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╤Л */
        for (i=0; i<NumEqs; i++)
            {
             Kfs[i] = VDefs[i].NeedK!=0 ? (float *) SafeMalloc(BoardSize) : NULL;
@@ -5613,7 +5406,7 @@ int main(void)
          ALPHA[i] = 0.5;
      memset(GRAV, 0, BoardSize);
 
-     /* Коэффициенты прогонки */
+     /* ╨Ъ╨╛╤Н╤Д╤Д╨╕╤Ж╨╕╨╡╨╜╤В╤Л ╨┐╤А╨╛╨│╨╛╨╜╨║╨╕ */
      L  = (double *) SafeMalloc(nSMP*ScKfSize);
      M  = (double *) SafeMalloc(nSMP*ScKfSize);
      G  = (double *) SafeMalloc(nSMP*ScKfSize);
@@ -5634,10 +5427,11 @@ int main(void)
 
 #ifdef __PARALLEL__
  DebugPrintf(DEBUG_FILE,"The main boards allocated\n");
+ fflush(DEBUG_FILE);
  if (MasterFlag)
     {
 #endif
-     /* Читать информацию об области и граничных условиях */
+     /* ╨з╨╕╤В╨░╤В╤М ╨╕╨╜╤Д╨╛╤А╨╝╨░╤Ж╨╕╤О ╨╛╨▒ ╨╛╨▒╨╗╨░╤Б╤В╨╕ ╨╕ ╨│╤А╨░╨╜╨╕╤З╨╜╤Л╤Е ╤Г╤Б╨╗╨╛╨▓╨╕╤П╤Е */
      Area = ReadMap(0,-1,CfgFName,".map",NULL,NULL);
 
      memmove(OrgnArea,Area,NX*NY*NZ*sizeof(char));
@@ -5685,63 +5479,8 @@ int main(void)
 
      CMap = NSubst==0 ? NULL : ReadMap(NSubst,-1,CfgFName,".c",&CVals,&SubstValNum);
 
-#ifndef __PARALLEL__
-     NKinets = 0;
-     if (CMap)
-        for (Ptr = 0; Ptr < NX*NY*NZ; Ptr++)
-       	    if (CMap[Ptr]==Zero)
-               NKinets++;
-     Traces = (TraceTypeHost *)malloc(NKinets*sizeof(TraceTypeHost));
-     NKinets = 0;
-     if (CMap)
-        for (Ptr = 0; Ptr < NX*NY*NZ; Ptr++)
-            if (CMap[Ptr]==Zero) {
-                 int counter;
-
-    		 Traces[NKinets].Tr = (unsigned short *) malloc(sizeof(TraceType));
-    		 Traces[NKinets].Tr1 = (unsigned short *) malloc(sizeof(TraceType));
-    		 Traces[NKinets].Tr2 = (unsigned short *) malloc(sizeof(TraceType));
-    		 Traces[NKinets].Tr3 = (unsigned short *) malloc(sizeof(TraceType));
-    		 memset(Traces[NKinets].Tr, 0, sizeof(TraceType));
-    		 memset(Traces[NKinets].Tr1, 0, sizeof(TraceType));
-    		 memset(Traces[NKinets].Tr2, 0, sizeof(TraceType));
-    		 memset(Traces[NKinets].Tr3, 0, sizeof(TraceType));
-    		 Traces[NKinets].KinetTraceQ1 = (float *) malloc(markZ99*sizeof(float));
-    		 Traces[NKinets].KinetTraceW1 = (float *) malloc(markZ99*sizeof(float));
-    		 Traces[NKinets].KinetTraceQ2 = (float *) malloc(markZ99*sizeof(float));
-    		 Traces[NKinets].KinetTraceW2 = (float *) malloc(markZ99*sizeof(float));
-    		 Traces[NKinets].KinetTraceQ3 = (float *) malloc(markZ99*sizeof(float));
-    		 Traces[NKinets].KinetTraceW3 = (float *) malloc(markZ99*sizeof(float));
-    		 Traces[NKinets].Prognosed0 = (unsigned short *) malloc(markZ99*sizeof(unsigned short));
-    		 Traces[NKinets].Prognosed1 = (unsigned short *) malloc(markZ99*sizeof(unsigned short));
-    		 Traces[NKinets].Prognosed2 = (unsigned short *) malloc(markZ99*sizeof(unsigned short));
-                 for (counter = 0; counter < HistorySize; counter++) {
-    		 	Traces[NKinets].Winners[counter] = (signed char *) malloc(markZ99*sizeof(signed char));
-    		 	Traces[NKinets].Besters[counter] = (signed char *) malloc(markZ99*sizeof(signed char));
-			Traces[NKinets].Timings[counter] = 1.0f;
-			memset(Traces[NKinets].Winners[counter], 0, markZ99*sizeof(signed char));
-			memset(Traces[NKinets].Besters[counter], 0, markZ99*sizeof(signed char));
-		 }
-                 for (counter = 0; counter < markZ99; counter++) {
-                     Traces[NKinets].KinetTraceW1[counter] = 0.0;
-                     Traces[NKinets].KinetTraceQ1[counter]  = 1.0;
-                     Traces[NKinets].KinetTraceW2[counter] = 0.0;
-                     Traces[NKinets].KinetTraceQ2[counter]  = 1.0;
-                     Traces[NKinets].KinetTraceW3[counter] = 0.0;
-                     Traces[NKinets].KinetTraceQ3[counter]  = 1.0;
-                     Traces[NKinets].Prognosed0[counter] = 1;
-                     Traces[NKinets].Prognosed1[counter] = 1;
-                     Traces[NKinets].Prognosed2[counter] = 1;
-                 }
-                 Traces[NKinets].KinetTraceW = KGlobal.KinetTraceW;
-                 Traces[NKinets].KinetTraceWOrder = KGlobal.KinetTraceWOrder;
-                 Traces[NKinets].Iters = 1;
-    		 Traces[NKinets++].tag = Ptr;
-            }
-#endif
-
 #ifdef __PARALLEL__
- /* Работаем ТОЛЬКО в случае, если в верхней и нижней границах нет "щелей" */
+ /* ╨а╨░╨▒╨╛╤В╨░╨╡╨╝ ╨в╨Ю╨Ы╨м╨Ъ╨Ю ╨▓ ╤Б╨╗╤Г╤З╨░╨╡, ╨╡╤Б╨╗╨╕ ╨▓ ╨▓╨╡╤А╤Е╨╜╨╡╨╣ ╨╕ ╨╜╨╕╨╢╨╜╨╡╨╣ ╨│╤А╨░╨╜╨╕╤Ж╨░╤Е ╨╜╨╡╤В "╤Й╨╡╨╗╨╡╨╣" */
      for (y=0, Ptr=0; y<NY; y++)
          for (x=0; x<NX; x++,Ptr++)
              if (Area[Ptr]==0 || Area[Ptr+NZs*NY*NX]==0)
@@ -5753,16 +5492,18 @@ int main(void)
 #endif
                  AbortServer(4);
                 }
- /* Посылаем КОЛЬЦУ процессоров информацию об области и граничных условиях */
+ /* ╨Я╨╛╤Б╤Л╨╗╨░╨╡╨╝ ╨Ъ╨Ю╨Ы╨м╨ж╨г ╨┐╤А╨╛╤Ж╨╡╤Б╤Б╨╛╤А╨╛╨▓ ╨╕╨╜╤Д╨╛╤А╨╝╨░╤Ж╨╕╤О ╨╛╨▒ ╨╛╨▒╨╗╨░╤Б╤В╨╕ ╨╕ ╨│╤А╨░╨╜╨╕╤З╨╜╤Л╤Е ╤Г╤Б╨╗╨╛╨▓╨╕╤П╤Е */
      for (i=1; i<nProcs; i++)
          {
           SendSlave(i-1,(byte *) &Area[FromGrid[i-1]*NY*NX],LengthGrid[i-1]*NY*NX*sizeof(char));
           SendSlave(i-1,(byte *) &OrgnArea[FromGrid[i-1]*NY*NX],LengthGrid[i-1]*NY*NX*sizeof(char));
           DebugPrintf(DEBUG_FILE,"Area block sended to %i\n",i);
+          fflush(DEBUG_FILE);
           for (x=0; x<NumEqs; x++)
               SendMap (i-1,FromGrid[i-1],LengthGrid[i-1],
                 Maps[x].Map,Maps[x].ValNum,Maps[x].Vals,1);
           DebugPrintf(DEBUG_FILE,"Main maps sended to %i\n",i);
+          fflush(DEBUG_FILE);
           if (NSubst)
              SendMap (i-1,FromGrid[i-1],LengthGrid[i-1],CMap,SubstValNum,CVals,NSubst);
          }
@@ -5770,17 +5511,19 @@ int main(void)
  else
    if (CalculateAll)
       {
-       /* Получаем информацию об области и граничных условиях и    */
-       /* сразу корректируем карты, определяя, где необходим обмен */
+       /* ╨Я╨╛╨╗╤Г╤З╨░╨╡╨╝ ╨╕╨╜╤Д╨╛╤А╨╝╨░╤Ж╨╕╤О ╨╛╨▒ ╨╛╨▒╨╗╨░╤Б╤В╨╕ ╨╕ ╨│╤А╨░╨╜╨╕╤З╨╜╤Л╤Е ╤Г╤Б╨╗╨╛╨▓╨╕╤П╤Е ╨╕    */
+       /* ╤Б╤А╨░╨╖╤Г ╨║╨╛╤А╤А╨╡╨║╤В╨╕╤А╤Г╨╡╨╝ ╨║╨░╤А╤В╤Л, ╨╛╨┐╤А╨╡╨┤╨╡╨╗╤П╤П, ╨│╨┤╨╡ ╨╜╨╡╨╛╨▒╤Е╨╛╨┤╨╕╨╝ ╨╛╨▒╨╝╨╡╨╜ */
        Area  = RecvMap(FirstFlag,LastFlag,NULL,NULL,NULL,1);
        RecvMaster((byte *) OrgnArea, NX*NY*NZ*sizeof(char));
        DebugPrintf(DEBUG_FILE,"Area block received\n");
+       fflush(DEBUG_FILE);
        for (i=0; i<NumEqs; i++)
            Maps[i].Map = RecvMap(FirstFlag,LastFlag,Area,
                                  &Maps[i].ValNum,&Maps[i].Vals,1);
        DebugPrintf(DEBUG_FILE,"Main maps received\n");
+       fflush(DEBUG_FILE);
        CMap  = NSubst==0 ? NULL : RecvMap(FirstFlag,LastFlag,Area,&SubstValNum,&CVals,NSubst);
-       /* "Замыкаем" карту физической конфигурации сверху и снизу */
+       /* "╨Ч╨░╨╝╤Л╨║╨░╨╡╨╝" ╨║╨░╤А╤В╤Г ╤Д╨╕╨╖╨╕╤З╨╡╤Б╨║╨╛╨╣ ╨║╨╛╨╜╤Д╨╕╨│╤Г╤А╨░╤Ж╨╕╨╕ ╤Б╨▓╨╡╤А╤Е╤Г ╨╕ ╤Б╨╜╨╕╨╖╤Г */
        if (!FirstFlag)
           for (y=0, Ptr=0; y<NY; y++)
               for (x=0; x<NX; x++,Ptr++)
@@ -5798,6 +5541,27 @@ int main(void)
                       Area[Ptr] = ExchngBit | 1;
                      }
       }
+#endif
+
+#ifndef __PARALLEL__
+ NKinets = 0;
+ if (CMap)
+    for (Ptr = 0; Ptr < NX*NY*NZ; Ptr++)
+        if (CMap[Ptr]==Zero)
+           NKinets++;
+#endif
+
+#ifdef __OPENMP__
+#ifdef __PARALLEL__
+ Contexts = (KineticContext *) malloc(nSMP*sizeof(KineticContext));
+#else
+ Ptr = NKinets % KinetChunkSize;
+ if (Ptr) NKinets += (KinetChunkSize - Ptr);
+ Contexts = (KineticContext *) malloc(imax(NKinets,nSMP)*sizeof(KineticContext));
+#endif
+#else
+ KinetChunkSize = 1;
+ Contexts = (KineticContext *) malloc(NKinets*sizeof(KineticContext));
 #endif
 
  Vars.BoundSize = 0;
@@ -5861,10 +5625,11 @@ int main(void)
 #ifdef __PARALLEL__
     }
  DebugPrintf(DEBUG_FILE,"Prepare to the last stage\n");
+ fflush(DEBUG_FILE);
  if (MasterFlag)
     {
 #endif
-     /* Инициализировать массивы данных о шагах сетки */
+     /* ╨Ш╨╜╨╕╤Ж╨╕╨░╨╗╨╕╨╖╨╕╤А╨╛╨▓╨░╤В╤М ╨╝╨░╤Б╤Б╨╕╨▓╤Л ╨┤╨░╨╜╨╜╤Л╤Е ╨╛ ╤И╨░╨│╨░╤Е ╤Б╨╡╤В╨║╨╕ */
      HXreg = ArrangeGrid(OrgnArea,HX,(float)HXmin,(float)HXmax,NZ,NY,NX,NY*NX,NX,1,DescH,_HX[0]>0.0 ? _HX : NULL);
      HYreg = ArrangeGrid(OrgnArea,HY,(float)HYmin,(float)HYmax,NZ,NX,NY,NY*NX,1,NX,DescP,_HY[0]>0.0 ? _HY : NULL);
      HZreg = ArrangeGrid(OrgnArea,HZ,(float)HZmin,(float)HZmax,NY,NX,NZ,NX,1,NY*NX,DescV,_HZ[0]>0.0 ? _HZ : NULL);
@@ -5931,7 +5696,8 @@ int main(void)
           SendSlave(i-1,(byte *) &HXreg,sizeof(HXreg));
           SendSlave(i-1,(byte *) &HYreg,sizeof(HYreg));
           SendSlave(i-1,(byte *) &HZreg,sizeof(HZreg));
-          DebugPrintf(DEBUG_FILE,"Main experiment data sended to %i\n",i);
+          DebugPrintf(DEBUG_FILE,"Main experiment data sent to %i\n",i);
+          fflush(DEBUG_FILE);
          }
     }
  else
@@ -5962,6 +5728,7 @@ int main(void)
         RecvMaster((byte *) &HYreg, sizeof(HYreg));
         RecvMaster((byte *) &HZreg, sizeof(HZreg));
         DebugPrintf(DEBUG_FILE,"Main experiment data received\n");
+        fflush(DEBUG_FILE);
 
         SHMEMUp   = SHMEMUp && UseSHMEM;
         SHMEMDown = SHMEMDown && UseSHMEM;
@@ -6134,6 +5901,7 @@ int main(void)
         {
 #ifndef __MVS__
          fprintf(StdOutput,"Input number of iterations : ");
+         fflush(StdOutput);
 #endif
          if (StdInput==stdin)
 	    i = scanf(_intScanf,&maxtakt);
@@ -6150,6 +5918,7 @@ int main(void)
          if (maxtakt == 0) {
 #ifndef __MVS__
             fprintf(StdOutput,"Input end time : ");
+            fflush(StdOutput);
 #endif
             if (StdInput==stdin)
 	       i = scanf(_doubleScanf,&EndTime);
@@ -6166,6 +5935,7 @@ int main(void)
          }
 #ifndef __MVS__
          fprintf(StdOutput,"Input number of iterations in 1 cadre : ");
+         fflush(StdOutput);
 #endif
          if (StdInput==stdin)
 	    i = scanf("%u",&Quant);
@@ -6181,49 +5951,58 @@ int main(void)
          }
          for (i=0; i<NumEqs; i++)
              InitBoardF(VDefs[i].SubClass,Vars.Name[i], Maps[i].Map, Maps[i].Vals, VDefs[i]._Zero);
-         /* Установление кинетики, если нужно */ /* !!! */
          if (NReact && SetSteadyKinetics) {
             KineticContext CC = { 0 };
-            float TimeQuant = TAU;
-            float avr_dc = 0.0f;
+            unsigned short int TR[2048];
+            double __end = 1000*TAU;
+            double TimeQuant = TAU;
+            double __time = 0.0;
+
+            fprintf(StdOutput,"Try to set steady initial concentrations\n");
+            fflush(StdOutput);
 
             if (PhaseVars[CarrierPhase]._T>=0) {
-               bool Flag = 0;
-               for (z=0, Ptr=0; !Flag && z<NZ; z++)
-                 for (y=0; !Flag && y<NY; y++)
-                   for (x=0; !Flag && x<NX; x++,Ptr++)
-                       if (!Area[Ptr]) {
-                          SetTk(&CC,Vars.Name[PhaseVars[CarrierPhase]._T][Ptr]);
-                          Flag = 1;
+               double avrT = 0.0;
+               int nn = 0;
+
+               for (z=0, Ptr=0; z<NZ; z++)
+                 for (y=0; y<NY; y++)
+                   for (x=0; x<NX; x++, Ptr++) {
+                          avrT += Vars.Name[PhaseVars[CarrierPhase]._T][Ptr];
+                          nn++;
                        }
+               SetTk(&CC,(float)avrT/nn);
             } else
                SetTk(&CC,(float)KGlobal.DefaultT);
             for (i=0; i<NASubst; i++)
-               CC.Conc0[i] = ZeroC[KGlobal.TranMap[i]];
+                CC.Conc0[i] = ZeroC[KGlobal.TranMap[i]];
 
+            double diff;
             do {
-                KGlobal.InitH = min(KGlobal.InitH,TimeQuant*0.001f);
+                KGlobal.InitH = min(KGlobal.InitH,TimeQuant*0.0001f);
                 CC._EndTime = (float)TimeQuant;
 
-                OneTaktKinetic(&KGlobal,&CC,UseGear,Adams_Rozhkov_Method);
+                OneTaktKinetic(&KGlobal,&CC,UseGear,OTHER_KIN_METHOD); /* May implicitly uses TR variable */
 
-                avr_dc = 1000.0f;
-
-                if (CC.Iters >= KGlobal.MaxIterations)
+                if (CC.Iters >= KGlobal.MaxIterations || CC.LossPrecision) {
                    TimeQuant /= 5.0;
-                else if (CC.LossPrecision)
-                   break;
-                else {
-                   avr_dc = 0.0f;
+                   diff = 1.0;
+                } else {
+                   diff = 0.0;
                    for (i=0; i<NASubst; i++) {
-                       avr_dc += fabsf(CC.Conc1[i] - CC.Conc0[i]);
+                       diff += fabsf(CC.Conc0[i] - CC.Conc1[i]);
                        CC.Conc0[i] = CC.Conc1[i];
+                       // if (CC.Conc0[i] < 0.25*ZeroC[KGlobal.TranMap[i]]) CC.Conc0[i] = 0.25*ZeroC[KGlobal.TranMap[i]];
                    }
-                   avr_dc /= NASubst;
+                   __time += TimeQuant;
+                   TimeQuant = TAU;
                 }
-            } while (TimeQuant > 1E-10 && avr_dc > 1E-6*TimeQuant);
+            } while (TimeQuant > 1E-10 && __time < __end && diff > 1E-12);
             if (TimeQuant <= 1E-10) {
                printf("Warning: Kinetics can't converge!\n");
+#ifdef __PARALLEL__
+               DebugPrintf(DEBUG_FILE,"Warning: Kinetics can't converge!\n");
+#endif
                fprintf(StdOutput,"Warning: Kinetics can't converge!\n");
             }
             for (i=0; i<NASubst; i++)
@@ -6234,6 +6013,13 @@ int main(void)
             }
             fprintf(StdOutput,"\n");
             fflush(StdOutput);
+#ifdef __PARALLEL__
+            DebugPrintf(DEBUG_FILE,"Steady Concentrations = ");
+            for (i = 0; i < NSubst; i++) {
+                DebugPrintf(DEBUG_FILE,"%le ", ZeroC[i]);
+            }
+            DebugPrintf(DEBUG_FILE,"\n");
+#endif
          }
          for (x=0;x<NSubst;x++)
              InitBoard(Vars.Dn[x],CMap,&(CVals[x*SubstValNum]),(float)ZeroC[x]);
@@ -6328,7 +6114,7 @@ int main(void)
         TimeCounter++;
        }
      if (TimeCounter>0) CalcBase = TimeStopBase[TimeCounter-1];
-     /* Цикл обработки */
+     /* ╨ж╨╕╨║╨╗ ╨╛╨▒╤А╨░╨▒╨╛╤В╨║╨╕ */
      FTIME(&_BeginTime);
      START = 1;
      do
@@ -6380,7 +6166,7 @@ int main(void)
            {
             QuantCount = 0;
             Cadres++;
-            /* Записать данные в файл результатов */
+            /* ╨Ч╨░╨┐╨╕╤Б╨░╤В╤М ╨┤╨░╨╜╨╜╤Л╨╡ ╨▓ ╤Д╨░╨╣╨╗ ╤А╨╡╨╖╤Г╨╗╤М╤В╨░╤В╨╛╨▓ */
             for (i=0; i<NumEqs; i++)
                 if (Saves[Eq2File[i]])
                    WriteBoardFile(Vars.Name[i],SaveFiles[Eq2File[i]],Cadres);
@@ -6398,8 +6184,8 @@ int main(void)
             CreateSavFile(&SavFile,maxtakt,Quant,takt,SaveAllHistory);
            }
 
-        /* Закончить по достижении максимального числа итераций или если  */
-        /* была нажата любая клавиша                                      */
+        /* ╨Ч╨░╨║╨╛╨╜╤З╨╕╤В╤М ╨┐╨╛ ╨┤╨╛╤Б╤В╨╕╨╢╨╡╨╜╨╕╨╕ ╨╝╨░╨║╤Б╨╕╨╝╨░╨╗╤М╨╜╨╛╨│╨╛ ╤З╨╕╤Б╨╗╨░ ╨╕╤В╨╡╤А╨░╤Ж╨╕╨╣ ╨╕╨╗╨╕ ╨╡╤Б╨╗╨╕  */
+        /* ╨▒╤Л╨╗╨░ ╨╜╨░╨╢╨░╤В╨░ ╨╗╤О╨▒╨░╤П ╨║╨╗╨░╨▓╨╕╤И╨░                                      */
 #if !defined(__MAY_BE_MICROSOFTC__) && !defined(__MVS__) && !defined(__UNIX__)
         Command= (takt != maxtakt) && !(maxtakt == 0 && ModelTime >= EndTime) && (! kbhit()) && !StoppedByUser;
 #else
@@ -6552,31 +6338,6 @@ int main(void)
  free(Lmin2);
  free(DIV);
 
-#ifndef __PARALLEL__
- for (Ptr = 0; Ptr < NKinets; Ptr++) {
-	 int counter;
-
-	 free(Traces[Ptr].Tr);
-	 free(Traces[Ptr].Tr1);
-	 free(Traces[Ptr].Tr2);
-	 free(Traces[Ptr].Tr3);
-	 free(Traces[Ptr].KinetTraceQ1);
-	 free(Traces[Ptr].KinetTraceW1);
-	 free(Traces[Ptr].KinetTraceQ2);
-	 free(Traces[Ptr].KinetTraceW2);
-	 free(Traces[Ptr].KinetTraceQ3);
-	 free(Traces[Ptr].KinetTraceW3);
-	 free(Traces[Ptr].Prognosed0);
-	 free(Traces[Ptr].Prognosed1);
-	 free(Traces[Ptr].Prognosed2);
-         for (counter = 0; counter < HistorySize; counter++) {
-		free(Traces[Ptr].Winners[counter]);
-		free(Traces[Ptr].Besters[counter]);
-	 }
- }
- free(Traces);
-#endif
-
 #ifdef __PARALLEL__
  if (MasterFlag || CalculateAll)
     {
@@ -6647,7 +6408,7 @@ int main(void)
 
  DoneVars();
 
- return 1;
+ return 0;
 }
 
 #else

@@ -14,8 +14,6 @@
 
 #pragma plan common begin
 
-#define kinetf double
-
 /* Максимальное число веществ, участвующих в реакции */
 #define MaxActSubst 15 /* 10 !!! for GPU */
 /* Максимальное количество реакций */
@@ -28,26 +26,26 @@
 #define Adams_Rozhkov_Method 0
 #define Rosenbrock_Method 1
 
-#define OTHER_KIN_METHOD Rosenbrock_Method
+#define OTHER_KIN_METHOD Adams_Rozhkov_Method
 // #define OTHER_KIN_METHOD Adams_Rozhkov_Method
 
 typedef struct {
   int    NumLeft;
   int    NumRight;
   int    Indexes[MaxActSubst];
-  kinetf  k[MaxActSubst];
+  float  k[MaxActSubst];
 } Reaction;
 
 typedef struct {
  int      LossH;    /* Признак малости H */
- kinetf    LastH;    /* Последнее H */
- kinetf    ReachTau; /* Достигнутое значение TAU */
- kinetf    Tmp;      /* Температура проведения реакций */
+ float    LastH;    /* Последнее H */
+ float    ReachTau; /* Достигнутое значение TAU */
+ float    Tmp;      /* Температура проведения реакций */
 } ErrorKinetic;
 
 #define LAST_DERIVS (2*MaxOrder)
 
-typedef kinetf Derivs[LAST_DERIVS + 1];
+typedef float Derivs[LAST_DERIVS + 1];
 
 typedef char   SubstName[SubstNameLength];
 
@@ -75,7 +73,7 @@ typedef char   SubstName[SubstNameLength];
 #define ZeroK 273.0f
 #define _R_   1.987E-3f
 
-__constant kinetf Koeffs[5][3] =
+__constant float Koeffs[5][3] =
   {
    {1.0f,2.0f,3.0f},
    {1.0f,4.5f,6.0f},
@@ -89,29 +87,29 @@ __constant kinetf Koeffs[5][3] =
 typedef struct {
 	int MaxIterations; /* Максимальное число итераций */
 
-	kinetf InitTime; /* Начальное время интегрирования */
-	kinetf CalcEps; /* Относительная точность интегрирования ST1/eps */
-	kinetf MinH;/* Минимальный шаг интегрирования ST1/hmin */
+	float InitTime; /* Начальное время интегрирования */
+	float CalcEps; /* Относительная точность интегрирования ST1/eps */
+	float MinH;/* Минимальный шаг интегрирования ST1/hmin */
 	/* End of Constants */
 
-	kinetf DefaultT;
+	float DefaultT;
 
 	/* Shared variables */
-	kinetf InitH;  /* Начальный шаг интегрирования h */
+	float InitH;  /* Начальный шаг интегрирования h */
 	/* Имена веществ [KG->NSubst] */
 	SubstName Names[MaxActSubst];
 	/* Скорости витания веществ [KG->NSubst] */
-	kinetf     Uw[MaxActSubst];
+	float     Uw[MaxActSubst];
 	/* Карта участия веществ в реакциях */
 	char      Activity[MaxActSubst];
 	/* Индексы веществ, участвующих в химических реакциях */
 	int       TranMap[MaxActSubst];
 	/* Ei : Энергии активации KINET/ea [KG->NReact] */
-	kinetf     EA[MaxReact];
+	float     EA[MaxReact];
 	/* Ai : Lg( предэкспоненты констант скорости ) [KG->NReact] */
-	kinetf     _A[MaxReact];
+	float     _A[MaxReact];
 	/* Ni : Показатели степеней в температурных множителях KINET/tn [KG->NReact] */
-	kinetf     Tn[MaxReact];
+	float     Tn[MaxReact];
 	/* Реакции KINET/KG->LR [KG->NReact] */
 	Reaction  LR[MaxReact];
 
@@ -130,80 +128,92 @@ typedef struct {
   int LossPrecision;        /* Флаг потери точности при вычислениях */
   int Iters; /* Действительное число итераций */
 
-  kinetf  Tk;   /* Температура в Кельвинах KINET/tk */
-  kinetf  _EndTime; /* Конечное время интегрирования */
+  float  Tk;   /* Температура в Кельвинах KINET/tk */
+  float  _EndTime; /* Конечное время интегрирования */
 
   /* Начальная концентрация веществ [KG->NASubst] */
-  kinetf Conc0[MaxActSubst];
+  float Conc0[MaxActSubst];
   /* Конечная концентрация [KG->NASubst] */
-  kinetf Conc1[MaxActSubst];
+  float Conc1[MaxActSubst];
 
   /* Рабочие переменные [KG->NASubst] */
   Derivs * Y;
   /* KINET */
   int    LgAScale; /* ml = Lg(aml) */
-  kinetf  AScale; /* Масштабный множитель aml */
-  kinetf  C[MaxReact];    /* Вычисляемые константы скоростей реакций c [KG->NReact] */
-  kinetf  Tem;    /* Температура в ккал/моль tem */
+  float  AScale; /* Масштабный множитель aml */
+  float  C[MaxReact];    /* Вычисляемые константы скоростей реакций c [KG->NReact] */
+  float  Tem;    /* Температура в ккал/моль tem */
   /* ST1 */
-  kinetf  Time;
-  kinetf  H;
+  float  Time;
+  float  H;
   int    MaxDer;
   int    jStart;
   /* ST2 */
-  kinetf  Ymax[MaxActSubst]; /* [KG->NASubst] */
+  float  Ymax[MaxActSubst]; /* [KG->NASubst] */
   /* ST3 */
-  kinetf  Err[MaxActSubst]; /* [KG->NASubst] */
+  float  Err[MaxActSubst]; /* [KG->NASubst] */
   /* ST4 */
-  kinetf  * Df; /* [KG->NASubst][KG->NASubst] */
+  float  * Df; /* [KG->NASubst][KG->NASubst] */
   /* ST5 */
-  kinetf  * FSave1; /* [KG->NASubst] */
-  kinetf  * FSave2; /* [KG->NASubst] */
+  float  * FSave1; /* [KG->NASubst] */
+  float  * FSave2; /* [KG->NASubst] */
   /* STIFF */
   int    iRow[MaxActSubst]; /* [KG->NASubst] */
 
-  kinetf  El[6];
-  kinetf  Tq[4];
-  kinetf  edn;
-  kinetf  e;
-  kinetf  eup;
-  kinetf  bnd;
+  float  El[6];
+  float  Tq[4];
+  float  edn;
+  float  e;
+  float  eup;
+  float  bnd;
 
   int   Nq;
   int   l;
   int   lmax;
   int   idoub;
-  kinetf rmax;
-  kinetf rc;
+  float rmax;
+  float rc;
 
-  kinetf rh;
+  float rh;
 
-  kinetf trend;
-  kinetf oldl0;
-  kinetf hold;
+  float trend;
+  float oldl0;
+  float hold;
 
   int   evalja;
   int   conver;
 } KineticContext;
 
-kinetf amax2(kinetf First, kinetf Second)
+float amax2(float First, float Second)
 {
  return First>Second ? First : Second;
 }
 
-kinetf amax3(kinetf First, kinetf Second, kinetf Third)
+float amax3(float First, float Second, float Third)
 {
  return First>Second ? amax2(First,Third) : amax2(Second,Third);
 }
 
-kinetf amin2(kinetf First, kinetf Second)
+float amin2(float First, float Second)
 {
  return First<Second ? First : Second;
 }
 
-kinetf amin3(kinetf First, kinetf Second, kinetf Third)
+float amin3(float First, float Second, float Third)
 {
  return First<Second ? amin2(First,Third) : amin2(Second,Third);
+}
+
+float fabsr(float a) {
+	return fabs(a);
+}
+
+float _powr(float a, float b) {
+	return pow(a,b) /* native_powr(a,b) */;
+}
+
+float expr(float a) {
+	return exp(a) /* native_exp(a) */;
 }
 
 #pragma plan common end
@@ -221,18 +231,6 @@ void gmemset(void * mem, char what, unsigned int size) {
 }
 
 #pragma plan gpu begin
-
-kinetf fabsf(kinetf a) {
-	return fabs(a);
-}
-
-kinetf powf(kinetf a, kinetf b) {
-	return pow(a,b) /* native_powr(a,b) */;
-}
-
-kinetf expf(kinetf a) {
-	return exp(a) /* native_exp(a) */;
-}
 
 void lmemset(__local void * mem, char what, unsigned int size) {
 	__local char * _mem = (__local char *) mem;
@@ -260,9 +258,9 @@ void gmemset(__global void * mem, char what, unsigned int size) {
 
 #pragma plan gpu end
 
-void SetTk(KineticContext * C, kinetf Tmp)
+void SetTk(KineticContext * C, float Tmp)
 {
-	C->Tk = (kinetf)(ZeroK + Tmp);
+	C->Tk = (float)(ZeroK + Tmp);
 }
 
 /* Выводим из рассмотрения вещества, фактически не участвующие в реакциях */
@@ -301,7 +299,7 @@ int Translate(KineticGlobal * KG, int NumEq, char * Equation)
  while (Count<Long)
    {
     int    BegCount = Count;
-    kinetf  How  = 0.0;
+    float  How  = 0.0;
     int    iHow = 1;
 
     int CurLong;
@@ -320,7 +318,7 @@ int Translate(KineticGlobal * KG, int NumEq, char * Equation)
         char Buf = Equation[Count];
 
         Equation[Count] = 0;
-        How = (kinetf)atof(&Equation[BegCount]);
+        How = (float)atof(&Equation[BegCount]);
         Equation[Count] = Buf;
         if (How==0.0) return 0;
         if (floor(How)==How && How>0.0)
@@ -406,17 +404,17 @@ void Jacobian(__global KineticGlobal * KG, __local KineticContext * C)
           {
            int Cur = KG->LR[i].Indexes[j];
 
-           kinetf  W  = C->C[i];
+           float  W  = C->C[i];
 
            if (KG->LR[i].k[j]!=0.0) {
-              W*=KG->LR[i].k[j]*powf(C->Y[Cur][0],KG->LR[i].k[j]-1.0f);
+              W*=KG->LR[i].k[j]*_powr(C->Y[Cur][0],KG->LR[i].k[j]-1.0f);
            }
            for (k=0;k<Left;k++)
                if (k!=j)
                   if (KG->LR[i].k[k]==0.0) {
                      W*=C->Y[KG->LR[i].Indexes[k]][0];
                   } else
-                     W*=powf(C->Y[KG->LR[i].Indexes[k]][0],KG->LR[i].k[k]);
+                     W*=_powr(C->Y[KG->LR[i].Indexes[k]][0],KG->LR[i].k[k]);
            for (k=0;k<Left;k++)
                C->Df[KG->LR[i].Indexes[k]*MaxActSubst+Cur] -= W;
            for (k=0;k<Right;k++)
@@ -430,9 +428,9 @@ void Jacobian(__global KineticGlobal * KG, __local KineticContext * C)
 /* И ЗАСЫЛАЕТ ИХ В МАССИВ f */
 /* DIFFUN */
 #ifndef __PARALLEL__
-$ void DifFun(__global KineticGlobal * KG, __local KineticContext * CC,kinetf  * Y0,int Ystep,kinetf  * F)
+$ void DifFun(__global KineticGlobal * KG, __local KineticContext * CC,float  * Y0,int Ystep,float  * F)
 #else
-void DifFun(__global KineticGlobal * KG, __local KineticContext * CC,kinetf  * Y0,int Ystep,kinetf  * F)
+void DifFun(__global KineticGlobal * KG, __local KineticContext * CC,float  * Y0,int Ystep,float  * F)
 #endif
 {
  int i,j;
@@ -448,13 +446,13 @@ void DifFun(__global KineticGlobal * KG, __local KineticContext * CC,kinetf  * Y
       int Left  = KG->LR[i].NumLeft;
       int Right = KG->LR[i].NumRight;
 
-      kinetf  W = CC->C[i];
+      float  W = CC->C[i];
 
       for (j=0;j<Left;j++)
           if (KG->LR[i].k[j]==0.0) {
              W*=Y0[Ystep*KG->LR[i].Indexes[j]];
           } else
-             W*=powf(Y0[Ystep*KG->LR[i].Indexes[j]],KG->LR[i].k[j]);
+             W*=_powr(Y0[Ystep*KG->LR[i].Indexes[j]],KG->LR[i].k[j]);
       /* Здесь W содержит значение скорости соответствующей реакции.
          Делить на AScale */
       for (j=0;j<Left;j++)
@@ -475,10 +473,10 @@ void Rescale(__global KineticGlobal * KG, __local KineticContext * CC)
 {
  int i,j;
 
- kinetf  R1=1.0;
+ float  R1=1.0;
 
- CC->rh = amax2(CC->rh,KG->MinH/fabsf(CC->H));
- CC->rh = amin3(CC->rh,CC->_EndTime/fabsf(CC->H),CC->rmax);
+ CC->rh = amax2(CC->rh,KG->MinH/fabsr(CC->H));
+ CC->rh = amin3(CC->rh,CC->_EndTime/fabsr(CC->H),CC->rmax);
  for (j=1;j<CC->l;j++)
      {
       R1 *= CC->rh;
@@ -573,19 +571,19 @@ void GetLU(__global KineticGlobal * KG, __local KineticContext * CC, __local int
         iRow[i]=i;
     for (i=0;i<KG->NASubst-1;i++)
       {
-       kinetf  Big  = 0.0;
+       float  Big  = 0.0;
        int    iBig = 0;
 
-       kinetf  Kf;
+       float  Kf;
        int    ir;
 
        for (j=i;j<KG->NASubst;j++)
            {
             /* По непонятным причинам компилятор Borland C++ 3.1
                отказался скомпилировать следующую строку :
-            kinetf  size = fabs(Df[KG->NASubst*iRow[j]+i]);
+            float  size = fabs(Df[KG->NASubst*iRow[j]+i]);
             */
-            kinetf  size    = fabsf(CC->Df[iRow[j]*MaxActSubst+i]);
+            float  size    = fabsr(CC->Df[iRow[j]*MaxActSubst+i]);
 
             if (size>Big)
                {
@@ -608,7 +606,7 @@ void GetLU(__global KineticGlobal * KG, __local KineticContext * CC, __local int
            {
             int jr = iRow[j];
 
-            kinetf  Fact = Kf*CC->Df[jr*MaxActSubst+i];
+            float  Fact = Kf*CC->Df[jr*MaxActSubst+i];
 
             CC->Df[jr*MaxActSubst+i] = Fact;
             for (k=i+1;k<KG->NASubst;k++)
@@ -622,7 +620,7 @@ void GetLU(__global KineticGlobal * KG, __local KineticContext * CC, __local int
 }
 
 /* РЕШЕНИЕ СИСТЕМЫ ЛИНЕЙНЫХ УРАВНЕНИЙ */
-void SolveLU(__global KineticGlobal * KG, __local KineticContext * CC, __local int * iRow, kinetf  * Y, kinetf  * X)
+void SolveLU(__global KineticGlobal * KG, __local KineticContext * CC, __local int * iRow, float  * Y, float  * X)
 {
  int i,j,k;
 
@@ -633,7 +631,7 @@ void SolveLU(__global KineticGlobal * KG, __local KineticContext * CC, __local i
     for (i=1;i<KG->NASubst;i++)
         {
          int   ir = iRow[i];
-         kinetf  V  = Y[ir];
+         float  V  = Y[ir];
 
          for (j=0;j<i;j++)
              V -= CC->Df[ir*MaxActSubst+j]*X[j];
@@ -645,7 +643,7 @@ void SolveLU(__global KineticGlobal * KG, __local KineticContext * CC, __local i
     for (i=1,j=KG->NASubst-2;i<KG->NASubst;i++,j--)
         {
          int   jr = iRow[j];
-         kinetf  V = X[j];
+         float  V = X[j];
 
          for (k=j+1;k<KG->NASubst;k++)
              V -= CC->Df[jr*MaxActSubst+k]*X[k];
@@ -679,23 +677,23 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
 #endif
 {
  int   kFlag=0;
- kinetf  Told=CC->Time;
+ float  Told=CC->Time;
 
- kinetf  pr1,pr2,pr3;
- kinetf  d;
+ float  pr1,pr2,pr3;
+ float  d;
  int newq;
 
  int Break590;
  int Break670;
  int ExitLoop;
 
- kinetf  Savel0;
+ float  Savel0;
 
  int i,j;
 
  if (CC->jStart==0)
     {
-     DifFun(KG,CC,(kinetf  *) CC->Y,7,CC->FSave1);
+     DifFun(KG,CC,(float  *) CC->Y,7,CC->FSave1);
      for (i=0;i<KG->NASubst;i++)
          CC->Y[i][1]=CC->FSave1[i]*CC->H;
 
@@ -733,15 +731,15 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
       {
        int iter = 0;
 
-       kinetf  d1;
+       float  d1;
 
        for (i=0;i<KG->NASubst;i++)
            CC->Err[i] = 0.0;
-       DifFun(KG,CC,(kinetf  *) CC->Y,7,CC->FSave2);
+       DifFun(KG,CC,(float  *) CC->Y,7,CC->FSave2);
 
        if (CC->evalja)
           {
-           kinetf  rf = -CC->El[0] * CC->H;
+           float  rf = -CC->El[0] * CC->H;
 
            Jacobian(KG,CC);
 
@@ -769,7 +767,7 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
           d = 0.0;
           for (i=0;i<KG->NASubst;i++)
               {
-               kinetf  V = CC->FSave1[i]/CC->Ymax[i];
+               float  V = CC->FSave1[i]/CC->Ymax[i];
 
                CC->Err[i] += CC->FSave1[i];
                CC->FSave1[i] = CC->Y[i][0]+CC->El[0]*CC->Err[i];
@@ -815,7 +813,7 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
        d = 0.0;
        for (i=0;i<KG->NASubst;i++)
            {
-            kinetf  V = CC->Err[i]/CC->Ymax[i];
+            float  V = CC->Err[i]/CC->Ymax[i];
             d += V*V;
            }
        CC->conver = 1;
@@ -836,9 +834,9 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
               }
            if (kFlag<=-maxfai)
               { /* 650 */
-               CC->rh = amax2(KG->MinH/fabsf(CC->H),rherr3);
+               CC->rh = amax2(KG->MinH/fabsr(CC->H),rherr3);
                CC->H *= CC->rh;
-               DifFun(KG,CC,(kinetf  *) CC->Y,7,CC->FSave1);
+               DifFun(KG,CC,(float  *) CC->Y,7,CC->FSave1);
                for (i=0;i<KG->NASubst;i++)
                    CC->Y[i][1] = CC->H * CC->FSave1[i];
 
@@ -848,19 +846,19 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
               }
            else
              {
-              pr2 = 1.0f/(powf(d/CC->e,0.5f/CC->l)*bias2+dfltzr);
+              pr2 = 1.0f/(_powr(d/CC->e,0.5f/CC->l)*bias2+dfltzr);
               if (CC->Nq!=1)
                  {
-                  kinetf  sum = 0.0;
+                  float  sum = 0.0;
                   for (i=0;i<KG->NASubst;i++)
                       {
-                       kinetf  V = CC->Y[i][CC->l-1] / CC->Ymax[i];
+                       float  V = CC->Y[i][CC->l-1] / CC->Ymax[i];
                        sum += V*V;
                       }
-                  pr1 = 1.0f/(powf(sum/CC->edn,0.5f/CC->Nq)*bias1+dfltzr);
+                  pr1 = 1.0f/(_powr(sum/CC->edn,0.5f/CC->Nq)*bias1+dfltzr);
                   if (pr1>pr2)
                      { /* 640 */
-                      kinetf  Savel0 = CC->oldl0;
+                      float  Savel0 = CC->oldl0;
 
                       SetNq(KG,CC,CC->Nq - 1);
                       CC->rh =  pr1;
@@ -897,26 +895,26 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
  pr3 = dfltzr;
  if (CC->Nq!=CC->MaxDer)
     {
-     kinetf  sum = 0.0;
+     float  sum = 0.0;
      for (i=0;i<KG->NASubst;i++)
          {
-          kinetf  V = (CC->Err[i] - CC->Y[i][CC->lmax-1]) / CC->Ymax[i];
+          float  V = (CC->Err[i] - CC->Y[i][CC->lmax-1]) / CC->Ymax[i];
           sum += V*V;
          }
-     pr3 = 1.0f/(powf(sum/CC->eup,0.5f/(CC->l+1.0f))*bias3+dfltzr);
+     pr3 = 1.0f/(_powr(sum/CC->eup,0.5f/(CC->l+1.0f))*bias3+dfltzr);
     }
  /* 720 */
- pr2 = 1.0f/(powf(d/CC->e,0.5f/CC->l)*bias2+dfltzr);
+ pr2 = 1.0f/(_powr(d/CC->e,0.5f/CC->l)*bias2+dfltzr);
  pr1 = dfltzr;
  if (CC->Nq!=1)
     {
-     kinetf  sum = 0.0;
+     float  sum = 0.0;
      for (i=0;i<KG->NASubst;i++)
          {
-          kinetf  V = CC->Y[i][CC->l-1] / CC->Ymax[i];
+          float  V = CC->Y[i][CC->l-1] / CC->Ymax[i];
           sum += V*V;
          }
-     pr1 = 1.0f/(powf(sum/CC->edn,0.5f/CC->Nq)*bias1+dfltzr);
+     pr1 = 1.0f/(_powr(sum/CC->edn,0.5f/CC->Nq)*bias1+dfltzr);
     }
  /* 740 */
  if ((pr3>pr1) && (pr3>pr2))
@@ -976,7 +974,7 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
  *result = 0;
 }
 
-__constant kinetf  AdamsTable[MaxOrder][6] = {
+__constant float  AdamsTable[MaxOrder][6] = {
    {1.0,  1.0,  0.0,  0.0,   0.0,  0.0  },
    {2.0,  1.0,  1.0,  0.0,   0.0,  0.0  },
    {12.0, 5.0,  8.0,  -1.0,  0.0,  0.0  },
@@ -984,7 +982,7 @@ __constant kinetf  AdamsTable[MaxOrder][6] = {
    {720.0,251.0,646.0,-264.0,106.0,-19.0}
 };
 
-__constant kinetf AdamsTableB[MaxOrder][6] = {
+__constant float AdamsTableB[MaxOrder][6] = {
    {1.0,  1.0,   0.0,    0.0,   0.0,    0.0  },
    {2.0,  3.0,   -1.0,   0.0,   0.0,    0.0  },
    {12.0, 23.0,  -16.0,  5.0,   0.0,    0.0  },
@@ -1000,7 +998,7 @@ void Adams_Rozhkov(__global KineticGlobal * KG, __local KineticContext * CC)
 {
  int    i,j,k;
  int    CurOrder;
- kinetf  Xp[MaxActSubst];
+ float  Xp[MaxActSubst];
 
  int    NP = 2;
  int    NQ = 2;
@@ -1009,8 +1007,8 @@ void Adams_Rozhkov(__global KineticGlobal * KG, __local KineticContext * CC)
      NQ *= 2;
  }
 
- kinetf  AdamsH = CC->H/NP;
- kinetf  HH = 0.0;
+ float  AdamsH = CC->H/NP;
+ float  HH = 0.0;
 
  int    np;
 
@@ -1028,7 +1026,7 @@ void Adams_Rozhkov(__global KineticGlobal * KG, __local KineticContext * CC)
 
    for (BashfortMode = 1; BashfortMode >= 0 && !KG->Fail && !CC->LossPrecision; BashfortMode--)
    {
-    kinetf  F1 = AdamsH/(!BashfortMode ? AdamsTable[CurOrder-1][0] : AdamsTableB[CurOrder-1][0]);
+    float  F1 = AdamsH/(!BashfortMode ? AdamsTable[CurOrder-1][0] : AdamsTableB[CurOrder-1][0]);
 
     for (i=0;i<KG->NASubst;i++)
         {
@@ -1047,8 +1045,8 @@ void Adams_Rozhkov(__global KineticGlobal * KG, __local KineticContext * CC)
          /* Здесь W, WT содержит значение скорости реакции.
             Делить на AScale */
          int      Flags[MaxActSubst];
-         __local kinetf  * W  = CC->Ymax;
-         kinetf    WT = CC->C[i];
+         __local float  * W  = CC->Ymax;
+         float    WT = CC->C[i];
 
          for (j=0;j<Left;j++)
              {
@@ -1058,7 +1056,7 @@ void Adams_Rozhkov(__global KineticGlobal * KG, __local KineticContext * CC)
               if (KG->LR[i].k[j]==0.0) {
                  WT *= CC->Y[k][np+CurOrder-BashfortMode];
               } else
-                 WT *= powf(CC->Y[k][np+CurOrder-BashfortMode],KG->LR[i].k[j]);
+                 WT *= _powr(CC->Y[k][np+CurOrder-BashfortMode],KG->LR[i].k[j]);
               Flags[k] = 0;
              }
          for (k=0;k<Left;k++)
@@ -1066,7 +1064,7 @@ void Adams_Rozhkov(__global KineticGlobal * KG, __local KineticContext * CC)
                 {
                  for (j=0;j<Left;j++)
                    if (KG->LR[i].k[j]!=0.0) {
-                      W[KG->LR[i].Indexes[k]] *= powf(CC->Y[KG->LR[i].Indexes[j]][np+CurOrder-BashfortMode],KG->LR[i].k[j]-(j==k ? 1.0f : 0.0f));
+                      W[KG->LR[i].Indexes[k]] *= _powr(CC->Y[KG->LR[i].Indexes[j]][np+CurOrder-BashfortMode],KG->LR[i].k[j]-(j==k ? 1.0f : 0.0f));
                    } else if (j!=k)
                       W[KG->LR[i].Indexes[k]] *= CC->Y[KG->LR[i].Indexes[j]][np+CurOrder-BashfortMode];
                  Flags[KG->LR[i].Indexes[k]] = 1;
@@ -1089,11 +1087,11 @@ void Adams_Rozhkov(__global KineticGlobal * KG, __local KineticContext * CC)
 
     for (i=0; i<KG->NASubst && !KG->Fail; i++)
         if (!BashfortMode) {
-           kinetf  HH = 1-F1*CC->FSave2[i]*AdamsTable[CurOrder-1][1];
+           float  HH = 1-F1*CC->FSave2[i]*AdamsTable[CurOrder-1][1];
 
            if (fabs(HH)>dfltzr)
               {
-               kinetf cnew = CC->FSave1[i]*AdamsTable[CurOrder-1][1];
+               float cnew = CC->FSave1[i]*AdamsTable[CurOrder-1][1];
                for (j=2; j<=CurOrder; j++)
                    cnew += AdamsTable[CurOrder-1][j]*CC->Y[i][np+CurOrder-j+1];
                CC->Y[i][np+CurOrder] = (CC->Y[i][np+CurOrder-1]+F1*cnew)/HH;
@@ -1103,18 +1101,18 @@ void Adams_Rozhkov(__global KineticGlobal * KG, __local KineticContext * CC)
                KG->Fail = 1;
               }
         } else {
-           kinetf  HH = -F1*CC->FSave2[i]*AdamsTableB[CurOrder-1][1];
+           float  HH = -F1*CC->FSave2[i]*AdamsTableB[CurOrder-1][1];
 
            CC->Y[i][np+CurOrder] = CC->FSave1[i]*AdamsTableB[CurOrder-1][1];
            for (j=2; j<=CurOrder; j++)
                CC->Y[i][np+CurOrder] += AdamsTableB[CurOrder-1][j]*CC->Y[i][np+CurOrder-j];
            CC->Y[i][np+CurOrder] = CC->Y[i][np+CurOrder-1]*(1-HH)+F1*CC->Y[i][np+CurOrder];
         }
-    if ((CC->Time + CC->H) == CC->Time || KG->Fail) CC->LossPrecision = 1;
+    if ((CC->Time + CC->H) == CC->Time || CC->H <= dfltzr || KG->Fail) CC->LossPrecision = 1;
    }
    HH += AdamsH;
   }
-  if (!KG->Fail)
+  if (!KG->Fail && !CC->LossPrecision)
      {
       for (i=0;i<KG->NASubst;i++) {
           for (j=1;j<=CurOrder;j++)
@@ -1144,7 +1142,7 @@ void Adams_Rozhkov(__global KineticGlobal * KG, __local KineticContext * CC)
  CC->Iters += KG->AdamsOrder-1;
 }
 
-__constant kinetf RosenTable[4][4] = {
+__constant float RosenTable[4][4] = {
    {-1.0f,      0.0f,        0.0f,       0.0f      },
    {1.0f/8.0f,  3.0f/8.0f,   1.0f,       0.0f      },
    {3.0f/8.0f,  19.0f/24.0f, -1.0f/6.0f, 0.0f      },
@@ -1178,7 +1176,7 @@ void Rosenbrock(__global KineticGlobal * KG, __local KineticContext * CC)
                CC->Y[i][k] += RosenTable[k-2][j] * CC->Y[i][j+1];
           }
           
-      DifFun(KG,CC,(kinetf  *) &CC->Y[0][k],7,CC->FSave2);
+      DifFun(KG,CC,(float  *) &CC->Y[0][k],7,CC->FSave2);
       for (i=0;i<KG->NASubst;i++)
           CC->FSave2[i] *= CC->H;
       SolveLU(KG,CC,CC->iRow,CC->FSave2,CC->FSave1);
@@ -1203,9 +1201,9 @@ void DispatchF(int OtherMethod, __global KineticGlobal * KG, __local KineticCont
  }
 }
 
-kinetf  pow10(int Arg)
+float  pow10(int Arg)
 {
- kinetf  result = 1;
+ float  result = 1;
 
  if (Arg>0)
    while((Arg--)>0) result*=10;
@@ -1222,9 +1220,9 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
 #endif
 {
  Derivs Y[MaxActSubst];
- kinetf  FSave1[MaxActSubst]; /* [KG->NASubst] */
- kinetf  FSave2[MaxActSubst]; /* [KG->NASubst] */
- kinetf  Df[MaxActSubst*MaxActSubst];
+ float  FSave1[MaxActSubst]; /* [KG->NASubst] */
+ float  FSave2[MaxActSubst]; /* [KG->NASubst] */
+ float  Df[MaxActSubst*MaxActSubst];
 
  int i,j;
 
@@ -1242,7 +1240,7 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
  if (CC->Tem>dfltzr)
     {
      /* Автоматический выбор масштабного множителя */
-     kinetf  maxY = dfltzr;
+     float  maxY = dfltzr;
 
      for (i=0;i<KG->NASubst;i++)
          if (CC->Conc0[i]>maxY) maxY = CC->Conc0[i];
@@ -1255,16 +1253,16 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
          /* Вычисление коэффициентов скорости */
          for (i=0;i<KG->NReact;i++)
              {
-              kinetf  PEi = (KG->_A[i]-(KG->LR[i].NumLeft-1)*CC->LgAScale)/M_LOG10E;
-              kinetf  Degree = PEi-KG->EA[i]/CC->Tem;
+              float  PEi = (KG->_A[i]-(KG->LR[i].NumLeft-1)*CC->LgAScale)/M_LOG10E;
+              float  Degree = PEi-KG->EA[i]/CC->Tem;
 
-              if (Degree>-80.0f) CC->C[i] = expf(Degree)*powf(CC->Tk,(kinetf)KG->Tn[i]);
+              if (Degree>-80.0f) CC->C[i] = expr(Degree)*_powr(CC->Tk,(float)KG->Tn[i]);
               else CC->C[i] = 0.0;
              }
 
          if (UseStiffGearMethod)
             {
-             kinetf  EpsCom = 1.0E-12f/KG->CalcEps;
+             float  EpsCom = 1.0E-12f/KG->CalcEps;
              /* STIFFC */
              for (i=0;i<KG->NASubst;i++)
                  {
@@ -1287,11 +1285,11 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
 
              for (CC->Iters = 0;CC->Time<=CC->_EndTime && CC->Iters<KG->MaxIterations && !CC->LossPrecision;CC->Iters++)
               {
-               kinetf  ys = 0.0;
+               float  ys = 0.0;
                int    resStiff = 0;
 
                for (i=0;i<KG->NASubst;i++)
-                   ys += fabsf(CC->Y[i][0]);
+                   ys += fabsr(CC->Y[i][0]);
                ys *= EpsCom;
                for (i=0;i<KG->NASubst;i++)
                    CC->Ymax[i] = amax3(CC->Y[i][0],ys,dfltzr);
@@ -1311,24 +1309,24 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
                  CC->KinErrorInfo.LossH    = CC->Iters!=KG->MaxIterations;
                  CC->KinErrorInfo.LastH    = CC->H;
                  CC->KinErrorInfo.ReachTau = CC->Time;
-                 CC->KinErrorInfo.Tmp      = (kinetf) (CC->Tk-ZeroK);
+                 CC->KinErrorInfo.Tmp      = (float) (CC->Tk-ZeroK);
                 }
              else
                 for (i=0;i<KG->NASubst;i++)
                     {
-                     kinetf  sum = 0.0;
+                     float  sum = 0.0;
                      for (j=0;j<=CC->jStart;j++)
-                         sum += CC->Y[i][j]*powf((CC->_EndTime-CC->Time)/CC->H,j*1.0f);
-                     CC->Conc1[i] = (kinetf)(sum/CC->AScale);
+                         sum += CC->Y[i][j]*_powr((CC->_EndTime-CC->Time)/CC->H,j*1.0f);
+                     CC->Conc1[i] = (float)(sum/CC->AScale);
                     }
             }
          else
             {
-             kinetf  _EndTime = CC->_EndTime;
-             kinetf  _H = amax2((CC->_EndTime-KG->InitTime)/50,KG->InitH);
+             float  _EndTime = CC->_EndTime;
+             float  _H;
 
-#define max_history 15
-#define period_of_check 4
+#define max_history 5
+#define period_of_check 2
 
 #define START_HISTORY(n) \
   n_of_history = n; \
@@ -1357,10 +1355,25 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
   history[n_of_history].error = err; \
   START_HISTORY(n_of_history);
 
+#define CHECK_REORDER() \
+  if (ORDER < MaxOrder && OtherMethod == Adams_Rozhkov_Method) { \
+     ORDER++; \
+     KG->AdamsOrder = ORDER; \
+     CC->H *= 0.25; \
+     if (CC->Time + CC->H == CC->Time || CC->H <= dfltzr) { \
+        CC->LossPrecision = (CC->_EndTime - CC->Time) > 20*CC->H; \
+        break; \
+     } \
+     RESTORE_HISTORY(0); \
+     CC->LossPrecision = 0; \
+     checker = 0; \
+     continue; \
+  }
+
              typedef struct {
-                kinetf _start;
-                kinetf conc0[MaxActSubst];
-                kinetf error;
+                float _start;
+                float conc0[MaxActSubst];
+                float error;
                 int    order;
              } history_item;
 
@@ -1375,11 +1388,14 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
                case Rosenbrock_Method :    ORDER = 4; break;
              }
 
+             _H = (CC->_EndTime-KG->InitTime)/(256/(1 << (ORDER-1)));
+
              CC->Time = KG->InitTime;
 
              CC->_EndTime = _EndTime;
              CC->H        = _H;
              CC->LossPrecision = 0;
+             KG->Fail = 0;
 
              history_item history[max_history];
              int n_of_history;
@@ -1391,8 +1407,8 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
                 if (checker == 0) {
                    checker = period_of_check - 1;
                    // Checked Work. Loop with check until loss h. If loss -> back history!
-                   kinetf startings[MaxActSubst];
-                   kinetf error = 0.0;
+                   float startings[MaxActSubst];
+                   float error = 0.0;
                    for (i=0;i<KG->NASubst;i++) {
                        startings[i] = CC->Y[i][0];
                    }
@@ -1401,49 +1417,49 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
                    DispatchF(OtherMethod, KG, CC);
                    CC->H *= 2;
                    if (CC->LossPrecision) {
-                      if (ORDER < MaxOrder && OtherMethod == Adams_Rozhkov_Method) {
-                         ORDER++;
-                         KG->AdamsOrder = ORDER;
-                         for (i=0;i<KG->NASubst;i++)
-                             CC->Y[i][0] = startings[i];
-                         CC->LossPrecision = 0;
-                         checker = 0;
-                         continue;
-                      }
-                      error = 10.0 * KG->CalcEps;
+                      CHECK_REORDER();
+                      error = 8.0 * KG->CalcEps;
                    } else {
                       for (i=0;i<KG->NASubst;i++) {
-                          kinetf maxY = fabsf(CC->Y[i][0]) > fabsf(startings[i]) ? fabsf(CC->Y[i][0]) : fabsf(startings[i]);
-                          error += fabsf(CC->Y[i][0] - startings[i]) / (1 << ORDER - 1) / maxY;
+                          float maxY = fabsr(CC->Y[i][0]) > fabsr(startings[i]) ? fabsr(CC->Y[i][0]) : fabsr(startings[i]);
+                          error += fabsr(CC->Y[i][0] - startings[i]) / (1 << ORDER - 1) / maxY;
                       }
                       error /= KG->NASubst;
                    }
                    if (error >= KG->CalcEps) {
                       // BIG ERROR
-                      int delta = n_of_history+1 > MaxOrder ? MaxOrder : n_of_history+1; // n_of_history * 0.8;
+                      int delta = n_of_history > MaxOrder ? MaxOrder : n_of_history; // n_of_history * 0.8;
                       // Back Extrapolation
-                      int min_i = delta;
-                      kinetf min_err = error;
-                      kinetf newh = CC->H * 0.5;
-                      while (delta >= 1) {
-                         kinetf err = error * AdamsTableB[delta-1][0];
-                         for (i=1; i<delta; i++)
-                             err -= AdamsTableB[delta-1][delta-i+1]*history[n_of_history - i + 1].error;
-                         err /= AdamsTableB[delta-1][1];
-                         if (err > 0.0) {
-                            kinetf C0 = history[n_of_history - (delta - 1)].error / pow(CC->H, ORDER);
-                            newh = amin2(newh, pow(err / C0, 1.0 / ORDER));
-                         }
-                         if (err < min_err) {
-                            min_err = err;
-                            min_i = delta;
-                         }
-                         delta--;
+                      int min_i = n_of_history == 0 ? 0 : delta;
+                      float newh = CC->H * 0.75;
+
+                      if (error >= 20*KG->CalcEps) {
+                         CHECK_REORDER();
                       }
-                      int r = n_of_history - (min_i - 1);
+
+                      if (n_of_history) {
+                         float min_err = error;
+
+                         while (delta >= 1) {
+                            float err = error * AdamsTableB[delta-1][0];
+                            for (i=1; i<delta; i++)
+                                err -= AdamsTableB[delta-1][delta-i+1]*history[n_of_history - i + 1].error;
+                            err /= AdamsTableB[delta-1][1];
+                            if (err > 0.0) {
+                               float C0 = error / _powr(CC->H, ORDER);
+                               newh = amin2(newh, _powr(err / C0, 1.0 / ORDER));
+                            }
+                            if (err < min_err) {
+                               min_err = err;
+                               min_i = delta;
+                            }
+                            delta--;
+                         }
+                      }
+                      int r = n_of_history - min_i;
                       RESTORE_HISTORY(r);
-                      CC->H = newh;
-                      if (CC->Time + CC->H == CC->Time) {
+                      CC->H = amax2(CC->H * 0.55, newh);
+                      if (CC->Time + CC->H == CC->Time || CC->H <= dfltzr) {
                          CC->LossPrecision = (CC->_EndTime - CC->Time) > 20*CC->H;
                          break;
                       }
@@ -1454,23 +1470,25 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
                    }
                    else if (2*error < KG->CalcEps) {
                       // BIG ERROR
-                      int delta = n_of_history+1 > MaxOrder ? MaxOrder : n_of_history+1; // n_of_history * 0.8;
+                      int delta = n_of_history > MaxOrder ? MaxOrder : n_of_history; // n_of_history * 0.8;
                       // Back Extrapolation
-                      kinetf newh = 1.25 * CC->H;
-                      while (delta >= 1) {
-                         kinetf err = error * AdamsTableB[delta-1][0];
-                         for (i=1; i<delta; i++)
-                             err -= AdamsTableB[delta-1][delta-i+1]*history[n_of_history - i + 1].error;
-                         err /= AdamsTableB[delta-1][1];
-                         if (err > 0.0) {
-                            kinetf C0 = history[n_of_history - (delta - 1)].error / pow(CC->H, ORDER);
-                            newh = amax2(newh, pow(err / C0, 1.0 / ORDER));
+                      float newh = 1.25 * CC->H;
+                      if (n_of_history) {
+                         while (delta >= 1) {
+                            float err = error * AdamsTableB[delta-1][0];
+                            for (i=1; i<delta; i++)
+                                err -= AdamsTableB[delta-1][delta-i+1]*history[n_of_history - i + 1].error;
+                            err /= AdamsTableB[delta-1][1];
+                            if (err > 0.0) {
+                               float C0 = error / _powr(CC->H, ORDER);
+                               newh = amax2(newh, _powr(err / C0, 1.0 / ORDER));
+                            }
+                            delta--;
                          }
-                         delta--;
+                         if (newh / CC->H > 10) newh = 10 * CC->H;
                       }
-                      if (newh / CC->H > 10) newh = 10 * CC->H;
                       CC->H = newh;
-                      if (CC->Time + CC->H == CC->Time) {
+                      if (CC->Time + CC->H == CC->Time || CC->H <= dfltzr) {
                          CC->LossPrecision = (CC->_EndTime - CC->Time) > 20*CC->H;
                          break;
                       }
@@ -1486,7 +1504,7 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
                    DispatchF(OtherMethod, KG, CC);
                    checker--;
                    if (CC->LossPrecision) {
-                      int r = n_of_history;
+                      int r = n_of_history ? n_of_history-1 : 0;
                       RESTORE_HISTORY(r);
                       CC->LossPrecision = 0;
                       checker = 0;
@@ -1499,7 +1517,7 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
 
                    START_HISTORY(0);
                 }
-                if ((CC->Time + CC->H) == CC->Time)
+                if ((CC->Time + CC->H) == CC->Time || CC->H <= dfltzr)
                    CC->Time = CC->_EndTime;
              }
 
@@ -1510,13 +1528,13 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
                  CC->KinErrorInfo.LossH    = CC->Iters!=KG->MaxIterations;
                  CC->KinErrorInfo.LastH    = CC->H;
                  CC->KinErrorInfo.ReachTau = CC->Time;
-                 CC->KinErrorInfo.Tmp      = (kinetf)(CC->Tk-ZeroK);
+                 CC->KinErrorInfo.Tmp      = (float)(CC->Tk-ZeroK);
                  for (i=0;i<KG->NASubst;i++)
                      CC->Conc1[i] = CC->Conc0[i];
                 }
              else
                 for (i=0;i<KG->NASubst;i++)
-                    CC->Conc1[i] = (kinetf)(CC->Y[i][0]/CC->AScale);
+                    CC->Conc1[i] = (float)(CC->Y[i][0]/CC->AScale);
             }
         }
      else
