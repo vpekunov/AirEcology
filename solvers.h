@@ -325,7 +325,7 @@ int PoissonSolver (float ** Bounds,
  return HMax > 10000 ? -1 : (H1==NULL ? Delta<=1E-2 : Delta<=1E-3);
 }
 
- /* Ðåøàåì óðàâíåíèå Ïóàññîíà äëÿ ïîëÿ êðèòè÷íîñòè. lapl(GRAV) = ERRS */
+ /* Ð ÐµÑˆÐ°ÐµÐ¼ ÑƒÑ€Ð°Ð²Ð½ÐµÐ½Ð¸Ðµ ÐŸÑƒÐ°ÑÑÐ¾Ð½Ð° Ð´Ð»Ñ Ð¿Ð¾Ð»Ñ ÐºÑ€Ð¸Ñ‚Ð¸Ñ‡Ð½Ð¾ÑÑ‚Ð¸. lapl(GRAV) = ERRS */
 void SolveCheckPoisson(float * GRAV, float * ERRS) {
  int  x, y, z;
  long Ptr;
