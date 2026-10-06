@@ -45,7 +45,9 @@ typedef struct {
 
 #define LAST_DERIVS (2*MaxOrder)
 
-typedef float Derivs[LAST_DERIVS + 1];
+#define STEP_Y (LAST_DERIVS + 1)
+
+typedef float Derivs[STEP_Y];
 
 typedef char   SubstName[SubstNameLength];
 
@@ -693,7 +695,7 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
 
  if (CC->jStart==0)
     {
-     DifFun(KG,CC,(float  *) CC->Y,7,CC->FSave1);
+     DifFun(KG,CC,(float  *) CC->Y,STEP_Y,CC->FSave1);
      for (i=0;i<KG->NASubst;i++)
          CC->Y[i][1]=CC->FSave1[i]*CC->H;
 
@@ -735,7 +737,7 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
 
        for (i=0;i<KG->NASubst;i++)
            CC->Err[i] = 0.0;
-       DifFun(KG,CC,(float  *) CC->Y,7,CC->FSave2);
+       DifFun(KG,CC,(float  *) CC->Y,STEP_Y,CC->FSave2);
 
        if (CC->evalja)
           {
@@ -836,7 +838,7 @@ void Stiff(__global KineticGlobal * KG, __local KineticContext * CC, int * resul
               { /* 650 */
                CC->rh = amax2(KG->MinH/fabsr(CC->H),rherr3);
                CC->H *= CC->rh;
-               DifFun(KG,CC,(float  *) CC->Y,7,CC->FSave1);
+               DifFun(KG,CC,(float  *) CC->Y,STEP_Y,CC->FSave1);
                for (i=0;i<KG->NASubst;i++)
                    CC->Y[i][1] = CC->H * CC->FSave1[i];
 
@@ -1176,7 +1178,7 @@ void Rosenbrock(__global KineticGlobal * KG, __local KineticContext * CC)
                CC->Y[i][k] += RosenTable[k-2][j] * CC->Y[i][j+1];
           }
           
-      DifFun(KG,CC,(float  *) &CC->Y[0][k],7,CC->FSave2);
+      DifFun(KG,CC,(float  *) &CC->Y[0][k],STEP_Y,CC->FSave2);
       for (i=0;i<KG->NASubst;i++)
           CC->FSave2[i] *= CC->H;
       SolveLU(KG,CC,CC->iRow,CC->FSave2,CC->FSave1);
@@ -1213,10 +1215,106 @@ float  pow10(int Arg)
  return result;
 }
 
+/* ВЫЧИСЛЕНИЕ ЗНАЧЕНИЙ ГЕССИАНА ИНТЕГРИРУЕМОЙ СИСТЕМЫ ОДУ ПО */
+/* ЗНАЧЕНИЯМ ВРЕМЕНИ t, ЯКОБИАНА Df И РЕШЕНИЙ y, СООТВЕТСТВУЮЩИХ ЭТОМУ МОМЕНТУ */
+/* ВРЕМЕНИ. ЭЛЕМЕНТЫ ГЕССИАНА ЗАСЫЛАЮТСЯ В МАССИВ HS[50,50) */
+/* HESSIAN */
 #ifndef __PARALLEL__
-$ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int UseStiffGearMethod, int OtherMethod)
+$ void Hessian(__global KineticGlobal * KG, __local KineticContext * C, float * FSAVE, float * HS)
 #else
-void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int UseStiffGearMethod, int OtherMethod)
+void Hessian(__global KineticGlobal * KG, __local KineticContext * C, float * FSAVE, float * HS)
+#endif
+{
+ int i,j,k;
+
+ for (i=0;i<MaxActSubst*MaxActSubst;i++)
+     HS[i] = 0.0f;
+/* ЦИКЛ ПО ЧИСЛУ УРАВНЕНИЙ */
+ for (i=0;i<KG->NASubst;i++)
+     for (j=0;j<KG->NASubst;j++)
+     {
+      float d = 0.0f;
+      for (k=0;k<KG->NASubst;k++)
+          d += C->Df[k*MaxActSubst+i]*C->Df[k*MaxActSubst+j];
+      HS[i*MaxActSubst+j] = d;
+     }
+}
+
+#ifndef __PARALLEL__
+$ void SolveToStableState(__global KineticGlobal * KG, __local KineticContext * CC, float * Df, float * FSAVE, float * DD)
+#else
+void SolveToStableState(__global KineticGlobal * KG, __local KineticContext * CC, float * Df, float * FSAVE, float * DD)
+#endif
+{
+   double YSUM, YSUM0;
+   float HS[MaxActSubst*MaxActSubst];
+   float mu = 100.0f;
+   double w;
+
+   int i, j, k = 1;
+   int advanced;
+
+   do {
+      DifFun(KG,CC,(float  *) CC->Y,STEP_Y,FSAVE);
+      YSUM = 0.0;
+      for (i=0;i<KG->NASubst;i++)
+          YSUM += FSAVE[i]*FSAVE[i];
+      Jacobian(KG, CC);
+      Hessian(KG, CC, FSAVE, HS);
+
+      for (i=0;i<KG->NASubst;i++) {
+          float d = 0.0f;
+          for (j=0;j<KG->NASubst;j++)
+              d += Df[j*MaxActSubst + i]*FSAVE[j];
+          DD[i] = d;
+      }
+      for (i=0;i<KG->NASubst;i++)
+          FSAVE[i] = DD[i];
+      for (i=0;i<KG->NASubst;i++)
+          for (j=0;j<KG->NASubst;j++)
+              Df[i*MaxActSubst + j] = HS[i*MaxActSubst + j] + (i==j ? mu/k : 0.0f);
+
+      GetLU(KG,CC,CC->iRow);
+      SolveLU(KG,CC,CC->iRow,FSAVE,DD);
+
+      w = 0.05;
+
+      for (i=0;i<KG->NASubst;i++) {
+          float d = fabs(DD[i]);
+          if (d > 1E-5)
+             if (0.1/fabs(DD[i]) < w)
+                w = 0.1/fabs(DD[i]);
+      }
+
+      YSUM0 = YSUM;
+      advanced = 0;
+      do {
+          double YSUM1 = 0.0;
+          for (i=0;i<KG->NASubst;i++) {
+              CC->Y[i][1] = CC->Y[i][0];
+              CC->Y[i][0] -= w*DD[i];
+          }
+          DifFun(KG,CC,(float  *) CC->Y,STEP_Y,FSAVE);
+          for (i=0;i<KG->NASubst;i++)
+              YSUM1 += FSAVE[i]*FSAVE[i];
+          if (YSUM1 >= YSUM) {
+             for (i=0;i<KG->NASubst;i++) {
+                 CC->Y[i][0] = CC->Y[i][1];
+             }
+             w /= 2;
+          } else {
+             YSUM = YSUM1;
+             advanced++;
+          }
+      } while (w > 0 && advanced > 5);
+      k++;
+   } while (YSUM0 - YSUM > 1E-9);
+}
+
+#ifndef __PARALLEL__
+$ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC, int UseStiffGearMethod, int OtherMethod, int SolveIfTooStiff)
+#else
+void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC, int UseStiffGearMethod, int OtherMethod, int SolveIfTooStiff)
 #endif
 {
  Derivs Y[MaxActSubst];
@@ -1302,11 +1400,11 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
                   }
                if ((CC->Time+CC->H)==CC->Time) CC->LossPrecision = 1;
               }
-             if (CC->Iters==KG->MaxIterations) CC->LossPrecision = 1;
+             if (CC->Iters>=KG->MaxIterations) CC->LossPrecision = 1;
 
              if (CC->LossPrecision)
                 {
-                 CC->KinErrorInfo.LossH    = CC->Iters!=KG->MaxIterations;
+                 CC->KinErrorInfo.LossH    = CC->Iters<KG->MaxIterations;
                  CC->KinErrorInfo.LastH    = CC->H;
                  CC->KinErrorInfo.ReachTau = CC->Time;
                  CC->KinErrorInfo.Tmp      = (float) (CC->Tk-ZeroK);
@@ -1325,7 +1423,7 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
              float  _EndTime = CC->_EndTime;
              float  _H;
 
-#define max_history 5
+#define max_history 15
 #define period_of_check 2
 
 #define START_HISTORY(n) \
@@ -1521,11 +1619,20 @@ void OneTaktKinetic(__global KineticGlobal * KG, __local KineticContext * CC,int
                    CC->Time = CC->_EndTime;
              }
 
-             if (CC->Iters==KG->MaxIterations) CC->LossPrecision = 1;
+             if (CC->LossPrecision || CC->Iters>=KG->MaxIterations) {
+                if (SolveIfTooStiff) {
+                   CC->LossPrecision = 0;
+                   CC->Iters++;
+
+                   SolveToStableState(KG, CC, Df, FSave1, FSave2);
+                   CC->Time = CC->_EndTime;
+                } else
+                   CC->LossPrecision = 1;
+             }
 
              if (CC->LossPrecision)
                 {
-                 CC->KinErrorInfo.LossH    = CC->Iters!=KG->MaxIterations;
+                 CC->KinErrorInfo.LossH    = CC->Iters<KG->MaxIterations;
                  CC->KinErrorInfo.LastH    = CC->H;
                  CC->KinErrorInfo.ReachTau = CC->Time;
                  CC->KinErrorInfo.Tmp      = (float)(CC->Tk-ZeroK);

@@ -2083,7 +2083,7 @@ void processKinetics(KineticContext * Contexts, KineticGlobal * KGlobal,
 			int omp_counter,
 			_pivot unsigned int Iters[__planned__.k]>
 		for (p = 0; p < k; p++) {
-			OneTaktKinetic(KGlobal, Contexts, UseGear, Method);
+			OneTaktKinetic(KGlobal, Contexts, UseGear, Method, 1);
 			Iters[p] = Contexts->Iters;
 		}
 		omp_counter++;
@@ -4013,7 +4013,7 @@ void Slave()
                        for (i=0; i<NASubst; i++)
                            CC->Conc0[i] = HBuff[OffsBufDn(KGlobal.TranMap[i])+Ptr];
 
-                       OneTaktKinetic(&KGlobal,CC,UseGear,OTHER_KIN_METHOD);
+                       OneTaktKinetic(&KGlobal,CC,UseGear,OTHER_KIN_METHOD, 1);
                        #pragma omp critical
                          _WCount = WCount++;
                        _SortedIndex[_WCount].Index = Ptr;
@@ -4067,7 +4067,7 @@ void Slave()
                               CC->Conc0[j] = Buffers[CurProc][Ptr++];
                           SetTk(CC,Buffers[CurProc][Ptr++]);
 
-                          OneTaktKinetic(&KGlobal,CC,UseGear,OTHER_KIN_METHOD);
+                          OneTaktKinetic(&KGlobal,CC,UseGear,OTHER_KIN_METHOD, 1);
                           Buffers[CurProc][WPtr+NASubst] = CC->Iters+1.0f;
                           addRealLoad += CC->Iters+1;
 
@@ -4148,7 +4148,7 @@ void Slave()
                        for (i=0;i<NASubst;i++)
                            CC->Conc0[i] = HBuff[OffsBufDn(KGlobal.TranMap[i])+Ptr];
 
-                       OneTaktKinetic(&KGlobal,CC,UseGear,OTHER_KIN_METHOD);
+                       OneTaktKinetic(&KGlobal,CC,UseGear,OTHER_KIN_METHOD, 1);
 
                        if (!CC->LossPrecision)
                           for (i=0;i<NASubst;i++)
@@ -5982,7 +5982,7 @@ int main(void)
                 KGlobal.InitH = min(KGlobal.InitH,TimeQuant*0.0001f);
                 CC._EndTime = (float)TimeQuant;
 
-                OneTaktKinetic(&KGlobal,&CC,UseGear,OTHER_KIN_METHOD); /* May implicitly uses TR variable */
+                OneTaktKinetic(&KGlobal,&CC,UseGear,OTHER_KIN_METHOD, 1); /* May implicitly uses TR variable */
 
                 if (CC.Iters >= KGlobal.MaxIterations || CC.LossPrecision) {
                    TimeQuant /= 5.0;
