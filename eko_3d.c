@@ -778,14 +778,10 @@ void RecvSlaveXXXTag(int slave, byte * Buf, long Length)
 /* Коэффициенты,определяющие вхождение противоточных производных в решение */
 WKoeffs WXYZ[NumPhases];
 
-#ifdef __PARALLEL__
-void CalculateWXY(float ** Bounds, unsigned char * Area, WKoeffs * W, float * Ux, float * Uy, int Delta)
-{
-#else
 void CalculateWXY(float ** Bounds, unsigned char * Area, WKoeffs * W, float * Ux, float * Uy)
 {
  int Delta = 0;
-#endif
+
  DeclareStandard
  int zy;
 
@@ -813,14 +809,10 @@ void CalculateWXY(float ** Bounds, unsigned char * Area, WKoeffs * W, float * Ux
     }
 }
 
-#ifdef __PARALLEL__
-void CalculateWZ(float ** Bounds, unsigned char * Area, WKoeffs * W, float * Uz, double Uw, int Delta, int UseOpenMP)
-{
-#else
 void CalculateWZ(float ** Bounds, unsigned char * Area, WKoeffs * W, float * Uz, double Uw, int UseOpenMP)
 {
  int Delta = 0;
-#endif
+
  DeclareStandard
  int zy;
 
@@ -1500,342 +1492,33 @@ void Calculate (float ** Bounds,
     }
 }
 #else
-void CalculateInXY
-               (float  ** Bounds,
-                float   * H,
-                float   * K,
-                float   * _S,
-                WKoeffs * W,
-                HKoeffs * HXR, HKoeffs * HYR,
-                float   * HX,  float  * HY,
-                float   * HXX, float  * HYY,
-                float   * HXS, float  * HYS,
-                float   * H1,  double * L, double * M, double * G,
-                float     R,
-                float   * Rt,
-                float     Kp,
-                DescLine      * DescH, DescLine * DescP, DescLine * DescV,
-                unsigned char * Map, unsigned char * Area, unsigned char * Boundaries,
-                char Restrict,
-                char Flags,
-                char RegularX, char RegularY,
-                char Projection,
-                int  UseOpenMP,
-                char Reverse)
-{
- if (SlowMode)
-    {
-     int    Mode;
-
-     for (Mode=0; Mode<2; Mode++)
-       if (Mode==Reverse)
-          {
-           /* Прогонка по X */
-           OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WX1,W->WX2,HXR,HX,HXX,HXS,
-                     H1,L,M,G,R, &Rt[NY*NX],Kp, NZ,NY,NX, NY*NX,NX,1, DescH, Flags, RegularX,
-                     Map, HX[NXs], UseOpenMP);
-           AnalyzeBoard(H,Map,Restrict, UseOpenMP);
-           CorrectBounds(Bounds,H, NY,NX,NZ, NX,1,NY*NX, DescV,Map,Area, Projection, 2, UseOpenMP);
-           CorrectBounds(Bounds,H, NZ,NX,NY, NY*NX,1,NX, DescP,Map,Area, Projection, 1, UseOpenMP);
-          }
-       else
-          {
-           /* Прогонка по Y  */
-           OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WY1,W->WY2,HYR,HY,HYY,HYS,
-                     H1,L,M,G,R, &Rt[NY*NX],Kp, NZ,NX,NY, NY*NX,1,NX, DescP, Flags, RegularY,
-                     Map, HY[NYs], UseOpenMP);
-           AnalyzeBoard(H,Map,Restrict, UseOpenMP);
-           CorrectBounds(Bounds,H, NY,NX,NZ, NX,1,NY*NX, DescV,Map,Area, Projection, 2, UseOpenMP);
-           CorrectBounds(Bounds,H, NZ,NY,NX, NY*NX,NX,1, DescH,Map,Area, Projection, 0, UseOpenMP);
-          }
-    }
-}
-
-/* Флаг разрешения экстраполяции */
-int AllowPrediction = 0;
-/* Число коэффициентов интерполируещего полинома */
-#define NWB    4
-/* Число точек, по которым идет интерполяция МНК */
-#define NExp   5
-/* Количество экстраполируемых точек */
-#define NPred  1
-/* Количество пропускаемых в начале итераций */
-#define ByPass 50
-/* Стадия: <0 = Запрет. 0..NExp-1 = сбор информации. NExp..NExp+NPred+1 = экстраполяция */
-int Stage = -1;
-/* Флаг использования взвешенных коэффициентов для МНК */
-int AllowQW = 1;
-/* Период контроля сеансов предикции */
-#define ReCalcNPs 10
-/* Количество экспериментальных точек для анализа при пересчете коэффициентов */
-#define ReCalcNPoints 30
-/* Максимальное значение коэффициента */
-#define MaxKQ 490.0
-/* Минимальное значение коэффициента */
-#define MinKQ 10.0
-/* Начальное значение коэффициента */
-#define InitKQ 250.0
-/* Шаг изменения коэффициента */
-#define StepKQ 20.0
-
-typedef double WBVect[NWB];  /* Вектор значений */
-typedef int    WBInds[NWB];  /* Вектор индексов строк для решения СЛАУ */
-typedef float  WBVals[NExp+NPred]; /* Вектор значений для контроля коэффициентов */
-
-typedef union {
- /* Коэффициенты полинома */
- WBVect X;
- /* Вектор значений интерполируемой ф-ции для МНК */
- float F[NExp];
-} TrVect;
-
-double TAUs[NExp][2*NWB-1];
-double sTAUs[NPred][NWB];
-double KQ[NExp];
-WBVect Koefs[NWB];
-WBVect Bs;
-WBInds LUInds;
-WBVect LUMatr[NWB];
-
-void PreparePrediction(double * KG)
-{
- int i,j,k;
- double Q = 0.0;
-
- for (i=0; i<NExp; i++)
-     TAUs[i][0] = KG==NULL ? 1.0 : KG[i];
- for (i=0; i<NExp; i++, Q+=TAU)
-   for (j=1; j<2*NWB-1; j++)
-     TAUs[i][j] = Q*TAUs[i][j-1]; 
- for (i=0; i<NWB; i++)
-   for (j=0; j<NWB; j++)
-     for (k=0, Koefs[i][j]=0.0; k<NExp; k++)
-       Koefs[i][j]+=TAUs[k][i+j];
- _GetLU(NWB, LUInds, (double *) Koefs, (double *) LUMatr);
-}
-
-double CalcPredictErr(WBVals * Trace, double Min, double * KQ, int Index, double Incr)
-{
- int i,j,k;
- double Err = 0.0;
-
- KQ[Index] += Incr; 
- if (KQ[Index]>=MinKQ && KQ[Index]<=MaxKQ)
-    {
-     PreparePrediction(KQ);
-     /* МНК и предикция во всех точках. Суммируем отклонения в Err. */
-     for (i=0; i<ReCalcNPoints; i++)
-       {
-        WBVect X;
-
-        for (j=0; j<NWB; j++)
-          for (k=0, Bs[j]=0.0; k<NExp; k++)
-            Bs[j] += TAUs[k][j]*Trace[i][k];
-        _SolveLU(NWB, LUInds, (double *) LUMatr, (double *) Bs, (double *) X);
-        for (k=0; k<NPred; k++)
-            {
-             double V = 0.0;
-
-             for (j=0; j<NWB; j++)
-                 V += X[j]*sTAUs[k][j];
-             Err += fabs(1-V/Trace[i][NExp+k]);
-            }
-       }
-    }
- else
-    Err = Min;
- KQ[Index] -= Incr;
-
- return min(Err,Min);
-}
-
-void PredictBoard(unsigned char * Map, TrVect * Trace, float * H)
-{
- int x, y, j, k;
- int Ptr;
- 
- for (y=0, Ptr=0; y<NY; y++)
-     for (x=0; x<NX; x++, Ptr++)
-         if (Map[Ptr]==ExchngBound)
-            {
-             if (Stage==NExp)
-               {
-                for (j=0; j<NWB; j++)
-                  for (k=0, Bs[j]=0.0; k<NExp; k++)
-                    Bs[j] += TAUs[k][j]*Trace[Ptr].F[k];
-                _SolveLU(NWB, LUInds, (double *) LUMatr, (double *) Bs, (double *) Trace[Ptr].X);
-               }
-             for (j=0, H[Ptr]=0.0; j<NWB; j++)
-                 H[Ptr] += Trace[Ptr].X[j]*sTAUs[Stage-NExp][j];
-            }
-}
-
-void CalculateInZ
+void CalculatePRL
                (float   ** Bounds,
                 _Solver S,
                 float    * DH, float * H, float * UH,
-                TrVect   * DTrace, TrVect * UTrace,
                 float    * K,
                 float    * _S,
                 WKoeffs  * W,
-                HKoeffs * HXR,  HKoeffs * HYR,HKoeffs * HZR,
-                float    * HX,  float  * HXX, float  * HXS,
-                float    * HY,  float  * HYY, float  * HYS,
-                float    * HZ,  float  * HZZ, float  * HZS,
+                HKoeffs * _HXR,  HKoeffs * _HYR,HKoeffs * _HZR,
+                float    * _HX,  float  * _HXX, float  * _HXS,
+                float    * _HY,  float  * _HYY, float  * _HYS,
+                float    * _HZ,  float  * _HZZ, float  * _HZS,
                 float    * H1,  double * L,   double * M,   double * G,
                 float      R,
-                float    * Rt, /* (NZ+2)*NY*NX !!! */
+                float    * _Rt, /* (NZ+2)*NY*NX !!! */
                 float      Kp,
                 DescLine * DescH, DescLine * DescP, DescLine * DescV,
                 unsigned char * Map, unsigned char * Area, unsigned char * Boundaries,
                 char Restrict,
                 char Flags,
-                char RegularZ,
+                char RegularX, char RegularY, char RegularZ,
                 char Projection,
                 int  UseOpenMP)
 {
- char BND = Flags>>shBoundary;
- double aR1;
- int    x, y;
- int    Ptr;
-
  if (FastMode && !SlowMode)
     if (!S) S = RozhkovSolver;
     else if (S != RozhkovSolver) S = NULL;
 
- memmove(H1,H,BoardSize);
- if (SlowMode)
-    if (Stage<NExp)
-       {
-        if (DownExchange)
-           {
-            if (Stage>=0)
-               for (y=0, Ptr=0; y<NY; y++)
-                   for (x=0; x<NX; x++, Ptr++)
-                       if (Map[Ptr]==ExchngBound)
-                          DTrace[Ptr].F[Stage] = H1[Ptr];
-            if (S==NULL)
-               {
-                /* Предвычисление по схеме Головичева на нижней границе */
-                aR1  = TAU/HZR[0].h/HZR[0].h;
-                #pragma omp parallel if(UseOpenMP)
-                #pragma omp for schedule(dynamic,imax(4,NY/8)) private(y,x,Ptr)
-                for (y=0; y<NY; y++)
-                    for (x=0, Ptr=y*NX; x<NX; x++, Ptr++)
-                        if (Map[Ptr]==ExchngBound)
-                           {
-                            double Z1,Z2,Z3,Rp,Rm,Rz;
-
-                            if (Boundaries[Ptr] && Boundaries[Ptr]<=BND)
-                               H[Ptr] = K[Ptr];
-                            else
-                               {
-                                if (Flags & fld2RF)
-                                   {
-                                    Rm = R+Kp*Rt[Ptr];
-                                    Rp = R+Kp*Rt[Ptr+2*NY*NX];
-                                    Rz = 2.0*(R+Kp*Rt[Ptr+NY*NX]);
-                                   }
-                                else
-                                  {
-                                   Rp   = R+0.5*Kp*(Rt[Ptr+NY*NX]+(Rt[Ptr+2*NY*NX]*HZR[0].R1p+Rt[Ptr+NY*NX]*HZR[0].R2p+Rt[Ptr]*HZR[0].R3p));
-                                   Rm   = R+0.5*Kp*(Rt[Ptr+NY*NX]+(Rt[Ptr+2*NY*NX]*HZR[0].R1m+Rt[Ptr+NY*NX]*HZR[0].R2m+Rt[Ptr]*HZR[0].R3m));
-                                   Rz   = Rm+Rp;
-                                  }
-                                Z1 = aR1*(Rm*HZR[0].R3m+Rp*HZR[0].R3p);
-                                Z2 = aR1*(Rm*HZR[0].R1m+Rp*HZR[0].R1p);
-                                Z3 = 1+aR1*(Rz-Rm*HZR[0].R2m-Rp*HZR[0].R2p)-(_S==NULL ? 0.0 : TAU/3.0*_S[Ptr]);
-                                
-                                if (W->WZ1[Ptr]>0.0)
-                                   Z3 += TAU*W->WZ1[Ptr];
-                                else
-                                   {
-                                    Z1 -= TAU*W->WZ1[Ptr]*HZR[0].R3p;
-                                    Z2 -= TAU*W->WZ1[Ptr]*HZR[0].R1p;
-                                    Z3 += TAU*W->WZ1[Ptr]*HZR[0].R2p;
-                                   }
-                                if (W->WZ2[Ptr]<=0.0)
-                                   Z3 -= TAU*W->WZ2[Ptr];
-                                else
-                                   {
-                                    Z1 += TAU*W->WZ2[Ptr]*HZR[0].R3m;
-                                    Z2 += TAU*W->WZ2[Ptr]*HZR[0].R1m;
-                                    Z3 -= TAU*W->WZ2[Ptr]*HZR[0].R2m;
-                                   }
-                                H[Ptr] = (H1[Ptr]+H1[Ptr+NY*NX]*Z2+DH[Ptr]*Z1+
-                                          (TAU/3.0)*(K==NULL ? 0.0 : K[Ptr])
-                                         )/Z3;
-                               }
-                           }
-               }
-           }
-        if (UpExchange)
-           {
-            if (Stage>=0)
-               for (y=0, Ptr=NZs*NY*NX; y<NY; y++)
-                   for (x=0; x<NX; x++, Ptr++)
-                       if (Map[Ptr]==ExchngBound)
-                          UTrace[Ptr-NZs*NY*NX].F[Stage] = H1[Ptr];
-            if (S==NULL)
-               {
-                /* Предвычисление по схеме Головичева на верхней границе */
-                aR1  = TAU/HZR[NZs].h/HZR[NZs].h;
-                #pragma omp parallel if(UseOpenMP)
-                #pragma omp for schedule(dynamic,imax(4,NY/8)) private(y,x,Ptr)
-                for (y=0; y<NY; y++)
-                    for (x=0, Ptr=(NZs*NY+y)*NX; x<NX; x++, Ptr++)
-                        if (Map[Ptr]==ExchngBound)
-                           {
-                            double Z1,Z2,Z3,Rp,Rm,Rz;
-
-                            if (Boundaries[Ptr] && Boundaries[Ptr]<=BND)
-                               H[Ptr] = K[Ptr];
-                            else
-                               {
-                                if (Flags & fld2RF)
-                                   {
-                                    Rm = R+Kp*Rt[Ptr];
-                                    Rp = R+Kp*Rt[Ptr+2*NY*NX];
-                                    Rz = 2.0*(R+Kp*Rt[Ptr+NY*NX]);
-                                   }
-                                else
-                                  {
-                                   Rp   = R+0.5*Kp*(Rt[Ptr+NY*NX]+(Rt[Ptr+2*NY*NX]*HZR[NZs].R1p+Rt[Ptr+NY*NX]*HZR[NZs].R2p+Rt[Ptr]*HZR[NZs].R3p));
-                                   Rm   = R+0.5*Kp*(Rt[Ptr+NY*NX]+(Rt[Ptr+2*NY*NX]*HZR[NZs].R1m+Rt[Ptr+NY*NX]*HZR[NZs].R2m+Rt[Ptr]*HZR[NZs].R3m));
-                                   Rz   = Rm+Rp;
-                                  }
-                                Z1 = aR1*(Rm*HZR[NZs].R3m+Rp*HZR[NZs].R3p);
-                                Z2 = aR1*(Rm*HZR[NZs].R1m+Rp*HZR[NZs].R1p);
-                                Z3 = 1+aR1*(Rz-Rm*HZR[NZs].R2m-Rp*HZR[NZs].R2p)-(_S==NULL ? 0.0 : TAU/3.0*_S[Ptr]);
-                                if (W->WZ1[Ptr]>0.0)
-                                   Z3 += TAU*W->WZ1[Ptr];
-                                else
-                                   {
-                                    Z1 -= TAU*W->WZ1[Ptr]*HZR[NZs].R3p;
-                                    Z2 -= TAU*W->WZ1[Ptr]*HZR[NZs].R1p;
-                                    Z3 += TAU*W->WZ1[Ptr]*HZR[NZs].R2p;
-                                   }
-                                if (W->WZ2[Ptr]<=0.0)
-                                   Z3 -= TAU*W->WZ2[Ptr];
-                                else
-                                   {
-                                    Z1 += TAU*W->WZ2[Ptr]*HZR[NZs].R3m;
-                                    Z2 += TAU*W->WZ2[Ptr]*HZR[NZs].R1m;
-                                    Z3 -= TAU*W->WZ2[Ptr]*HZR[NZs].R2m;
-                                   }
-                                H[Ptr] = (H1[Ptr]+UH[Ptr-NZs*NY*NX]*Z2+H1[Ptr-NY*NX]*Z1+
-                                          (TAU/3.0)*(K==NULL ? 0.0 : K[Ptr])
-                                         )/Z3;
-                               }
-                           }
-               }
-           }
-       }
-    else
-       {
-        if (DownExchange) PredictBoard(Map, DTrace, H);
-        if (UpExchange) PredictBoard(&Map[NZs*NY*NX], UTrace, &H[NZs*NY*NX]);
-       }
  if (S)
     {
      int Iteration = 1;
@@ -1853,10 +1536,218 @@ void CalculateInZ
     }
  else if (SlowMode)
     {
-     /* Прогонка по Z */
+/*
      OneLineGo(Area,Boundaries,Bounds,H,K,_S,W->WZ1,W->WZ2,HZR,HZ,HZZ,HZS,
                H1,L,M,G,R, &Rt[NY*NX],Kp, NY,NX,NZ, NX,1,NY*NX, DescV, Flags, RegularZ,
                Map, HZbf, UseOpenMP);
+*/
+     int NumZ  = NY;
+     int NumY  = NX;
+     int NumX  = NZ;
+     int ZStep = NX;
+     int YStep = 1;
+     int XStep = NY*NX;
+
+     float * WX1 = W->WZ1;
+     float * WX2 = W->WZ2;
+     float * WY1 = W->WX1;
+     float * WY2 = W->WX2;
+     float * WZ1 = W->WY1;
+     float * WZ2 = W->WY2;
+
+     HKoeffs * HXR = _HZR;
+     float * HX  = _HZ;
+     float * HXX = _HZZ;
+     float * HXS = _HZS;
+     HKoeffs * HYR = _HXR;
+     float * HY  = _HX;
+     float * HYY = _HXX;
+     float * HYS = _HXS;
+     HKoeffs * HZR = _HYR;
+     float * HZ  = _HY;
+     float * HZZ = _HYY;
+     float * HZS = _HYS;
+
+     float * Rt = &_Rt[NY*NX];
+
+     DescLine * Desc = DescV;
+
+     memmove(H1,H,BoardSize);
+     #pragma omp parallel if(UseOpenMP)
+     {
+    #ifdef __OPENMP__
+      int      ThreadID = omp_get_thread_num();
+    #endif
+      int i,x,y,z,zy;
+      int Item;
+      char BND = Flags>>shBoundary;
+
+      #pragma omp for schedule(dynamic,imax(1,NumY*NumZ/imax(20,4*nSMP))) private(zy,z,y,x,i,Item)
+      for (zy=0;zy<NumY*NumZ;zy++)
+          {
+           z = zy/NumY;
+           y = zy%NumY;
+           for (Item = 0; Item<Desc[zy].Num; Item++)
+               {
+                int X1 = Desc[zy].Items[Item].X1;
+                int X2 = Desc[zy].Items[Item].X2;
+                int D1 = Desc[zy].Dir1;
+                int D2 = Desc[zy].Dir2;
+                double Z1,Z2,Z3,Z21,Z22,Z23,Z31,Z32,Z33;
+                double aR1, aR2, aR3;
+                double Rp,Rm,Rz;
+
+                int Long = X1<=X2 ? X2-X1+1 : NumX-(X1-X2-1);
+
+                int PrevX = (X1+NumX-1) % NumX;
+                int PostX = (X2+1)      % NumX;
+
+                int IndexGRN1 = z*ZStep + y*YStep + PrevX*XStep;
+                int IndexGRN2 = z*ZStep + y*YStep + PostX*XStep;
+
+                unsigned char TypeGRN1 = Map[IndexGRN1]==ExchngBound ? ExchngBound : MAP(D1,Map,IndexGRN1);
+                unsigned char TypeGRN2 = Map[IndexGRN2]==ExchngBound ? ExchngBound : MAP(D2,Map,IndexGRN2);
+
+                if (TypeGRN1>=MinIndexBound1 || TypeGRN1==BoundClosed)
+                    *VAL(Bounds,D1,&H1[IndexGRN1]) = *VAL(Bounds,D1,&H[IndexGRN1]);
+                if (TypeGRN1==ExchngBound)
+                    H1[IndexGRN1] = *VAL(Bounds,D1,&H[IndexGRN1]);
+                if (TypeGRN2>=MinIndexBound1 || TypeGRN2==BoundClosed)
+                    *VAL(Bounds,D2,&H1[IndexGRN2]) = *VAL(Bounds,D2,&H[IndexGRN2]);
+                if (TypeGRN2==ExchngBound)
+                    H1[IndexGRN2] = *VAL(Bounds,D2,&H[IndexGRN2]);
+
+                for (i=1; i<=Long ; i++)
+                    {
+                     x    = (X1+NumX+i-1) % NumX;
+
+                     if (Boundaries[_ZYX] && Boundaries[_ZYX]<=BND)
+                        {
+                         H1[_ZYX] = K[_ZYX];
+                        }
+                     else
+                        {
+                         aR1  = TAU/HXR[x].h/HXR[x].h;
+
+                         if (Flags & fld2RF)
+                            {
+                             Rm = R+Kp**VAL(Bounds,D1,&Rt[_ZYXM]);
+                             Rp = R+Kp**VAL(Bounds,D2,&Rt[_ZYXP]);
+                             Rz = 2.0*(R+Kp*Rt[_ZYX]);
+                            }
+                         else
+                           {
+                            Rp   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZYXP])*HXR[x].R1p+Rt[_ZYX]*HXR[x].R2p+*VAL(Bounds,D1,&Rt[_ZYXM])*HXR[x].R3p));
+                            Rm   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZYXP])*HXR[x].R1m+Rt[_ZYX]*HXR[x].R2m+*VAL(Bounds,D1,&Rt[_ZYXM])*HXR[x].R3m));
+                            Rz   = Rm+Rp;
+                           }
+                         Z1   = aR1*(Rm*HXR[x].R3m+Rp*HXR[x].R3p);
+                         Z2   = aR1*(Rm*HXR[x].R1m+Rp*HXR[x].R1p);
+                         Z3   = 1+aR1*(Rz-Rm*HXR[x].R2m-Rp*HXR[x].R2p);
+                         if (WX1[_ZYX]>0.0)
+                            Z3 += TAU*WX1[_ZYX];
+                         else
+                            {
+                             Z1 -= TAU*WX1[_ZYX]*HXR[x].R3p;
+                             Z2 -= TAU*WX1[_ZYX]*HXR[x].R1p;
+                             Z3 += TAU*WX1[_ZYX]*HXR[x].R2p;
+                            }
+                         if (WX2[_ZYX]<=0.0)
+                            Z3 -= TAU*WX2[_ZYX];
+                         else
+                            {
+                             Z1 += TAU*WX2[_ZYX]*HXR[x].R3m;
+                             Z2 += TAU*WX2[_ZYX]*HXR[x].R1m;
+                             Z3 -= TAU*WX2[_ZYX]*HXR[x].R2m;
+                            }
+
+                         aR2  = TAU/HYR[y].h/HYR[y].h;
+
+                         if (Flags & fld2RF)
+                            {
+                             Rm = R+Kp**VAL(Bounds,D1,&Rt[_ZYMX]);
+                             Rp = R+Kp**VAL(Bounds,D2,&Rt[_ZYPX]);
+                             Rz = 2.0*(R+Kp*Rt[_ZYX]);
+                            }
+                         else
+                           {
+                            Rp   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZYPX])*HYR[y].R1p+Rt[_ZYX]*HYR[y].R2p+*VAL(Bounds,D1,&Rt[_ZYMX])*HYR[y].R3p));
+                            Rm   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZYPX])*HYR[y].R1m+Rt[_ZYX]*HYR[y].R2m+*VAL(Bounds,D1,&Rt[_ZYMX])*HYR[y].R3m));
+                            Rz   = Rm+Rp;
+                           }
+                         Z21   = aR2*(Rm*HYR[y].R3m+Rp*HYR[y].R3p);
+                         Z22   = aR2*(Rm*HYR[y].R1m+Rp*HYR[y].R1p);
+                         Z23   = 1+aR2*(Rz-Rm*HYR[y].R2m-Rp*HYR[y].R2p);
+                         if (WY1[_ZYX]>0.0)
+                            Z23 += TAU*WY1[_ZYX];
+                         else
+                            {
+                             Z21 -= TAU*WY1[_ZYX]*HYR[y].R3p;
+                             Z22 -= TAU*WY1[_ZYX]*HYR[y].R1p;
+                             Z23 += TAU*WY1[_ZYX]*HYR[y].R2p;
+                            }
+                         if (WY2[_ZYX]<=0.0)
+                            Z23 -= TAU*WY2[_ZYX];
+                         else
+                            {
+                             Z21 += TAU*WY2[_ZYX]*HYR[y].R3m;
+                             Z22 += TAU*WY2[_ZYX]*HYR[y].R1m;
+                             Z23 -= TAU*WY2[_ZYX]*HYR[y].R2m;
+                            }
+
+                         aR3  = TAU/HZR[z].h/HZR[z].h;
+
+                         if (Flags & fld2RF)
+                            {
+                             Rm = R+Kp**VAL(Bounds,D1,&Rt[_ZMYX]);
+                             Rp = R+Kp**VAL(Bounds,D2,&Rt[_ZPYX]);
+                             Rz = 2.0*(R+Kp*Rt[_ZYX]);
+                            }
+                         else
+                           {
+                            Rp   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZPYX])*HZR[z].R1p+Rt[_ZYX]*HZR[z].R2p+*VAL(Bounds,D1,&Rt[_ZMYX])*HZR[z].R3p));
+                            Rm   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZPYX])*HZR[z].R1m+Rt[_ZYX]*HZR[z].R2m+*VAL(Bounds,D1,&Rt[_ZMYX])*HZR[z].R3m));
+                            Rz   = Rm+Rp;
+                           }
+                         Z31   = aR3*(Rm*HZR[z].R3m+Rp*HZR[z].R3p);
+                         Z32   = aR3*(Rm*HZR[z].R1m+Rp*HZR[z].R1p);
+                         Z33   = 1+aR3*(Rz-Rm*HZR[z].R2m-Rp*HZR[z].R2p);
+                         if (WZ1[_ZYX]>0.0)
+                            Z33 += TAU*WZ1[_ZYX];
+                         else
+                            {
+                             Z31 -= TAU*WZ1[_ZYX]*HZR[z].R3p;
+                             Z32 -= TAU*WZ1[_ZYX]*HZR[z].R1p;
+                             Z33 += TAU*WZ1[_ZYX]*HZR[z].R2p;
+                            }
+                         if (WZ2[_ZYX]<=0.0)
+                            Z33 -= TAU*WZ2[_ZYX];
+                         else
+                            {
+                             Z31 += TAU*WZ2[_ZYX]*HZR[z].R3m;
+                             Z32 += TAU*WZ2[_ZYX]*HZR[z].R1m;
+                             Z33 -= TAU*WZ2[_ZYX]*HZR[z].R2m;
+                            }
+
+                         H1[_ZYX] = (H[_ZYX]+H[_ZYXP]*Z2+H[_ZYXM]*Z1+H[_ZYPX]*Z22+H[_ZYMX]*Z21+H[_ZPYX]*Z32+H[_ZMYX]*Z31+
+                                   (TAU)*(K==NULL ? 0.0 : K[_ZYX])
+                                  )/(Z3+Z23+Z33-(_S==NULL ? 0.0 : (TAU)*_S[_ZYX]));
+                        }
+                    }
+
+                if (TypeGRN1==Bound2)
+                   *VAL(Bounds,D1,&H1[IndexGRN1]) = *VAL(Bounds,D1,&H1[z*ZStep + y*YStep + X1*XStep]);
+                else if (TypeGRN1==Bound3)
+                   *VAL(Bounds,D1,&H1[IndexGRN1]) = 2*(*VAL(Bounds,D1,&H1[z*ZStep + y*YStep + X1*XStep])) - *VAL(Bounds,D1,&H1[z*ZStep + y*YStep + ((X1+1) % NumX)*XStep]);
+                if (TypeGRN2==Bound2)
+                    *VAL(Bounds,D2,&H1[IndexGRN2]) = *VAL(Bounds,D2,&H1[z*ZStep + y*YStep + X2*XStep]);
+                else if (TypeGRN2==Bound3)
+                    *VAL(Bounds,D2,&H1[IndexGRN2]) = 2*(*VAL(Bounds,D2,&H1[z*ZStep + y*YStep + X2*XStep])) - *VAL(Bounds,D2,&H1[z*ZStep + y*YStep + ((X2+NumX-1) % NumX)*XStep]);
+               }
+          }
+     }
+     memmove(H,H1,BoardSize);
+
      AnalyzeBoard(H,Map,Restrict, UseOpenMP);
      CorrectBounds(Bounds,H, NZ,NY,NX, NY*NX,NX,1, DescH,Map,Area, Projection, 0, UseOpenMP);
      CorrectBounds(Bounds,H, NZ,NX,NY, NY*NX,1,NX, DescP,Map,Area, Projection, 1, UseOpenMP);
@@ -2564,9 +2455,6 @@ void CalculateEps(int NumZ, double * MaxEps, float * Templ, float * Cur, float *
 #define BegBoard(i)  (((i)*(NZ+2)+1)*NX*NY)
 #define OffsBufDn(i) (((NZ+2)*(NumEqs+(i))+1)*NX*NY)
 
-TrVect * UpTrace   = NULL;
-TrVect * DownTrace = NULL;
-
 typedef struct {
   unsigned       int Index;
   unsigned short int Iters;
@@ -2580,46 +2468,14 @@ typedef struct {
 #define MinLong   50
 #define DeltaLong 50
 
-void Process_XY(float ** Bounds,
-                int VarNum,
-                float * K, float * _S, double R, float Kp,
-                WKoeffs * W,
-                unsigned char * HMap, unsigned char * HArea, unsigned char * Boundaries,
-                char Restrict,
-                char Flags,
-                char RegularX, char RegularY,
-                char Projection,
-                int  UseOpenMP,
-                char Reverse)
-{
- #ifdef __OPENMP__
-  int      NArray   = ScKfSize/sizeof(double);
-  int      ThreadID = omp_get_thread_num();
-  double * _L  = &L[ThreadID*NArray];
-  double * _G  = &G[ThreadID*NArray];
-  double * _M  = &M[ThreadID*NArray];
-  float  * _H1 = &H1[ThreadID*BoardSize/sizeof(float)];
- #else
-  double * _L  = L;
-  double * _G  = G;
-  double * _M  = M;
-  float  * _H1 = H1;
- #endif
- CalculateInXY(Bounds,&HBuff[BegBoard(VarNum)],K,_S,W,
-               HXR,HYR,
-               HX,HY,HXX,HYY,HXS,HYS,_H1,_L,_M,_G,
-               R,Dt,Kp,DescH,DescP,DescV,HMap,HArea,Boundaries,Restrict,
-               Flags,RegularX,RegularY,Projection, UseOpenMP, Reverse);
-}
-
-void Process_Z(float ** Bounds,
+void Process_PRL(float ** Bounds,
                _Solver S, int VarNum,
                float * K, float * _S, double R, float Kp,
                WKoeffs * W,
                unsigned char * HMap, unsigned char * HArea, unsigned char * Boundaries,
                char Restrict,
                char Flags,
-               char RegularZ,
+               char RegularX, char RegularY, char RegularZ, /* !!! */
                char Projection,
                int  UseOpenMP)
 {
@@ -2636,13 +2492,12 @@ void Process_Z(float ** Bounds,
   double * _M  = M;
   float  * _H1 = H1;
  #endif
- CalculateInZ(Bounds,
+ CalculatePRL(Bounds,
               S,&HBuff[BegBoard(VarNum)-NX*NY],&HBuff[BegBoard(VarNum)],&HBuff[BegBoard(VarNum)+NZ*NX*NY],
-              (DownTrace==NULL ? NULL : &DownTrace[VarNum*NX*NY]),(UpTrace==NULL ? NULL : &UpTrace[VarNum*NX*NY]),
               K,_S,W,
               HXR,HYR,HZR,
               HX,HXX,HXS,HY,HYY,HYS,HZ,HZZ,HZS,_H1,_L,_M,_G,R,Dt,Kp,DescH,DescP,DescV,HMap,HArea,Boundaries,Restrict,
-              Flags,RegularZ,Projection, UseOpenMP);
+              Flags,RegularX,RegularY,RegularZ,Projection, UseOpenMP);
 }
 
 #undef _A
@@ -3163,7 +3018,6 @@ void Slave()
  int     UsizeG = 0;
  int     DsizeG = 0;
 
- WBVals * CheckTrace = NULL;
  int    * Ptrs = NULL;
 
  float        ** Buffers     = NULL;
@@ -3253,37 +3107,6 @@ void Slave()
              }
         }
      BoundsInitialized = ToRecv!=0;
-    }
-
- if (AllowPrediction && !CheckTau)
-    {
-     if (UpExchange) UpTrace = (TrVect *) SafeMalloc((NumEqs+NSubst)*NX*NY*sizeof(TrVect));
-     if (DownExchange) DownTrace = (TrVect *) SafeMalloc((NumEqs+NSubst)*NX*NY*sizeof(TrVect));
-
-     for (i=0; i<NPred; i++)
-         sTAUs[i][0] = 1.0;
-     for (i=0, Q = NExp*TAU; i<NPred; i++, Q+=TAU)
-       for (j=1; j<NWB; j++)
-         sTAUs[i][j] = Q*sTAUs[i][j-1];
-     if (AllowQW)
-        {
-         CheckTrace = (WBVals *) SafeMalloc(ReCalcNPoints*sizeof(WBVals));
-         Ptrs       = (int *) SafeMalloc(ReCalcNPoints*sizeof(int));
-
-         for (i=0; i<ReCalcNPoints; i++)
-             do {
-               x = 1+((double) rand()/RAND_MAX)*NXs2;
-               y = 1+((double) rand()/RAND_MAX)*NYs2;
-               z = 1+((double) rand()/RAND_MAX)*NZs2;
-               Ptrs[i] = z*NY*NX+y*NX+x;
-             } while (Area[Ptrs[i]]!=0);
-
-         for (i=0; i<NExp; i++)
-             KQ[i] = InitKQ;
-         PreparePrediction(KQ);
-        }
-     else
-        PreparePrediction(NULL);
     }
 
  if (NReact && UseGear)
@@ -3406,9 +3229,7 @@ void Slave()
             RecvMaster((byte *) HBuff, (long) NumEqs*(NZ+2)*NX*NY*sizeof(float));
             if (!BoundsInitialized) BoundsPtr = InitSpecialBounds(Area,0,NumEqs-1,BoundsPtr);
            }
-        else
-           if (Stage<NExp)
-	      {
+        else  {
 	       MakeExchange("Start exchange\n","Stop exchange\n",
 #ifdef __MPI__
                             ExchRequests,
@@ -3435,9 +3256,7 @@ void Slave()
             if (!BoundsInitialized) BoundsPtr = InitSpecialBounds(Area,0,NSubst+NumEqs-1,BoundsPtr);
             BoundsInitialized = 1;
            }
-        else
-           if (Stage<NExp)
-	      {
+        else  {
 	       MakeExchange("Start exchange\n","Stop exchange\n",
 #ifdef __MPI__
                             ExchRequests,
@@ -3499,8 +3318,8 @@ void Slave()
 
         for (i=0; i<NumPhases; i++)
             {
-             if (!PhaseVars[i].IsLight) CalculateWXY(Vars.Bounds,Area,&WXYZ[i],&HBuff[BegBoard(PhaseVars[i]._Ux)],&HBuff[BegBoard(PhaseVars[i]._Uy)],Stage>=NExp);
-             CalculateWZ(Vars.Bounds,Area,&WXYZ[i],&HBuff[BegBoard(PhaseVars[i]._Uz)],*PhaseVars[i]._Uw,Stage>=NExp, UseOpenMP);
+             if (!PhaseVars[i].IsLight) CalculateWXY(Vars.Bounds,Area,&WXYZ[i],&HBuff[BegBoard(PhaseVars[i]._Ux)],&HBuff[BegBoard(PhaseVars[i]._Uy)]);
+             CalculateWZ(Vars.Bounds,Area,&WXYZ[i],&HBuff[BegBoard(PhaseVars[i]._Uz)],*PhaseVars[i]._Uw, UseOpenMP);
             }
         /* Скопировать турбулентную вязкость в рабочий массив */
         if (PhaseVars[CarrierPhase]._Nu>=0)
@@ -3527,7 +3346,7 @@ void Slave()
                 &HBuff[BegOffs(PhaseVars[CarrierPhase]._Ux)],
                 &HBuff[BegOffs(PhaseVars[CarrierPhase]._Uy)],
                 &HBuff[BegOffs(PhaseVars[CarrierPhase]._Uz)]);
-             CalculateK(&WXYZ[VDefs[i].Phase],Vars.Bounds,HBuff,Kfs,KDn,Sfs,SDn,Stage>=NExp,Area,Boundaries,Maps);
+             CalculateK(&WXYZ[VDefs[i].Phase],Vars.Bounds,HBuff,Kfs,KDn,Sfs,SDn,0,Area,Boundaries,Maps);
 
              DebugPrintf(DEBUG_FILE,"DIV and Koeffs calculated\n");
              fflush(DEBUG_FILE);
@@ -3589,7 +3408,7 @@ void Slave()
                       for (j=0;j<NSubst-NLightSubst;j++)
                           {
                            i = MapSubsts[NLightSubst+j];
-                           CalculateWZ((float **) Vars.Bounds, Area, &WXYZ[CarrierPhase], UzSave, (double)KGlobal.Uw[i], Stage>=NExp, UseOpenMP);
+                           CalculateWZ((float **) Vars.Bounds, Area, &WXYZ[CarrierPhase], UzSave, (double)KGlobal.Uw[i], UseOpenMP);
                            EulerCalculate((float **) Vars.Bounds,
                                           &HBuff[BegBoard(NumEqs+i)], KDn[i], SDn[i], &WXYZ[CarrierPhase],
                                           HXR, HYR, HZR,
@@ -3603,27 +3422,19 @@ void Slave()
                            );
                           }
                       if (NSubst-NLightSubst > 0)
-                         CalculateWZ((float **) Vars.Bounds, Area, &WXYZ[CarrierPhase], UzSave, 0.0, Stage>=NExp, UseOpenMP);
+                         CalculateWZ((float **) Vars.Bounds, Area, &WXYZ[CarrierPhase], UzSave, 0.0, UseOpenMP);
                    }
                 }  
              }
 
              if (CalcBase)
               {
-               DebugPrintf(DEBUG_FILE,"Start Process_Z\n");
+               DebugPrintf(DEBUG_FILE,"Start Process_PRL\n");
                fflush(DEBUG_FILE);
                for (i=0; i<NumEqs; i++)
-                   Process_Z(Vars.Bounds,VDefs[i].Solver,i,Kfs[i],Sfs[i],*VDefs[i]._NuMol,*VDefs[i]._Kappa,&WXYZ[VDefs[i].Phase],Maps[i].Map,Area,Boundaries,VDefs[i].Restrict,
-                      VDefs[i].Flags,HZreg,VDefs[i].Projection, UseOpenMP);
-               DebugPrintf(DEBUG_FILE,"Start Process_XY\n");
+                   Process_PRL(Vars.Bounds,VDefs[i].Solver,i,Kfs[i],Sfs[i],*VDefs[i]._NuMol,*VDefs[i]._Kappa,&WXYZ[VDefs[i].Phase],Maps[i].Map,Area,Boundaries,VDefs[i].Restrict,
+                      VDefs[i].Flags,HXreg,HYreg,HZreg,VDefs[i].Projection, UseOpenMP);
                fflush(DEBUG_FILE);
-               for (i=0; i<NumEqs; i++)
-                   {
-                    if (!VDefs[i].Solver)
-                       Process_XY(Vars.Bounds,i,Kfs[i],Sfs[i],*VDefs[i]._NuMol,*VDefs[i]._Kappa,&WXYZ[VDefs[i].Phase],Maps[i].Map,Area,Boundaries,VDefs[i].Restrict,
-                                  VDefs[i].Flags,HXreg,HYreg,VDefs[i].Projection, UseOpenMP, ReverseDirs[i]);
-                    ReverseDirs[i] = 1-ReverseDirs[i];
-                   }
               }
              if (SlowMode)
                 {
@@ -3670,7 +3481,7 @@ void Slave()
                  }
                 }
 
-             DebugPrintf(DEBUG_FILE,"Process_Z [Substances]\n");
+             DebugPrintf(DEBUG_FILE,"Process_PRL [Substances]\n");
              fflush(DEBUG_FILE);
 
              #pragma omp parallel if (EnhanceOpenMP)
@@ -3678,27 +3489,18 @@ void Slave()
              for (j=0;j<NLightSubst;j++)
                  {
                   i = MapSubsts[j];
-                  Process_Z(Vars.Bounds,NULL,NumEqs+i,KDn[i],SDn[i],D,0.0,&WXYZ[CarrierPhase],CMap,Area,Boundaries,rsPositive,1,HZreg,0, UseOpenMP && (1-EnhanceOpenMP));
+                  Process_PRL(Vars.Bounds,NULL,NumEqs+i,KDn[i],SDn[i],D,0.0,&WXYZ[CarrierPhase],CMap,Area,Boundaries,rsPositive,1,HXreg,HYreg,HZreg,0, UseOpenMP && (1-EnhanceOpenMP));
                  }
 
              for (j=0;j<NSubst-NLightSubst;j++)
                  {
                   i = MapSubsts[NLightSubst+j];
-                  if (SlowMode) CalculateWZ(Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,(double)KGlobal.Uw[i],Stage>=NExp, UseOpenMP);
-                  Process_Z(Vars.Bounds,NULL,NumEqs+i,KDn[i],SDn[i],D,0.0,&WXYZ[CarrierPhase],CMap,Area,Boundaries,rsPositive,1,HZreg,0, UseOpenMP);
+                  if (SlowMode) CalculateWZ(Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,(double)KGlobal.Uw[i], UseOpenMP);
+                  Process_PRL(Vars.Bounds,NULL,NumEqs+i,KDn[i],SDn[i],D,0.0,&WXYZ[CarrierPhase],CMap,Area,Boundaries,rsPositive,1,HXreg,HYreg,HZreg,0, UseOpenMP);
                  }
 
-             DebugPrintf(DEBUG_FILE,"Process_XY [Substances]\n");
+             if (NSubst && SlowMode && NSubst!=NLightSubst) CalculateWZ(Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,0.0, UseOpenMP);
              fflush(DEBUG_FILE);
-
-             if (NSubst && SlowMode && NSubst!=NLightSubst) CalculateWZ(Vars.Bounds,Area,&WXYZ[CarrierPhase],UzSave,0.0,Stage>=NExp, UseOpenMP);
-             #pragma omp parallel if (EnhanceOpenMP)
-             #pragma omp for schedule(dynamic) private(i)
-             for (i=0;i<NSubst;i++)
-                 {
-                  Process_XY(Vars.Bounds,NumEqs+i,KDn[i],SDn[i],D,0.0,&WXYZ[CarrierPhase],CMap,Area,Boundaries,rsPositive,1,HXreg,HYreg,0, UseOpenMP && (1-EnhanceOpenMP), ReverseDirs[NumEqs+i]);
-                  ReverseDirs[NumEqs+i] = 1-ReverseDirs[NumEqs+i];
-                 }
             }
 
         if (FastTAUDivider>1) TAU *= FastTAUDivider;
@@ -4234,74 +4036,6 @@ void Slave()
            }
        }
 
-    if (CalculateAll && AllowPrediction && !CheckTau)
-       {
-        if (AllowQW && !PredictCount && Stage>=0)
-           {
-            for (i=0; i<ReCalcNPoints; i++)
-                CheckTrace[i][Stage] = HBuff[BegBoard(PredictControlVar)+Ptrs[i]];
-            if (Stage==NExp+NPred-1)
-               {
-                double AntiGrad[NExp];
-                double Min;
-                int    Flag = 1;
-
-                for (i=0; i<NExp; i++)
-                    KQ[i] = InitKQ;
-                Min = CalcPredictErr(CheckTrace,1E+10,KQ,0,0.0);
-                /* Вычисляем антиградиент */
-                for (i=NExp-1; i>=0; i--)
-                    {
-                     double MinusV = CalcPredictErr(CheckTrace,Min,KQ,i,-StepKQ);
-                     double PlusV  = CalcPredictErr(CheckTrace,Min,KQ,i,+StepKQ);
-
-                     if (MinusV<PlusV)
-                        {
-                         AntiGrad[i] = -StepKQ;
-                         Min = MinusV;
-                        }
-                     else if (PlusV<MinusV)
-                        {
-                         AntiGrad[i] = +StepKQ;
-                         Min = PlusV;
-                        }
-                     else AntiGrad[i] = 0.0;
-                     KQ[i] += AntiGrad[i];
-                    }
-                /* Спуск по антиградиенту */
-                while (Flag)
-                  for (i=NExp-1, Flag=0; i>=0; i--)
-                      if (AntiGrad[i]!=0.0)
-                         {
-                          double NewMin = CalcPredictErr(CheckTrace,Min,KQ,i,AntiGrad[i]);
-                          if (NewMin<Min)
-                             {
-                              Min = NewMin;
-                              KQ[i] += AntiGrad[i];
-                              Flag = 1;
-                             }
-                          else
-                             AntiGrad[i] = 0.0;
-                         }
-                PreparePrediction(KQ);
-                for (i=0; i<NExp; i++)
-                    DebugPrintf(DEBUG_FILE,"%lf ",KQ[i]);
-                DebugPrintf(DEBUG_FILE,"\n");
-                fflush(DEBUG_FILE);
-               }
-           }
-        if (AllowQW && Stage==NExp+NPred-1)
-           if (++PredictCount==ReCalcNPs)
-              PredictCount = 0;
-
-        if (Stage<0)
-           if (Stage == -ByPass) Stage = 0;
-           else Stage--;
-        else
-           if (Stage == NExp+NPred-1) Stage = 0;
-           else Stage++;
-       }
-
     if (Packet._RecvCommand)
        RecvCommand(&Command);
     DebugPrintf(DEBUG_FILE,"End of current iteration\n");
@@ -4349,14 +4083,6 @@ void Slave()
  if (SHMEMDown && CheckTau) SHMEM_RM(GHDG);
 #endif
  
- if (AllowPrediction && !CheckTau)
-    {
-     free(UpTrace); free(DownTrace);
-     if (AllowQW)
-        {
-         free(CheckTrace); free(Ptrs);
-        }
-    }
  if (NReact && UseGear)
     {
 #if defined(__MPI__) || defined(__ROUTER__) || defined(__ROUTER_100__)

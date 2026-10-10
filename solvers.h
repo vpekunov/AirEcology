@@ -33,6 +33,18 @@ void CorrectBounds (float ** Bounds,
 #define _ZYXP (z*ZStep+y*YStep+_XP*XStep)
 #define _ZYXM (z*ZStep+y*YStep+_XM*XStep)
 
+#define _YP ((y+1)      % NumY)
+#define _YM ((y+NumY-1) % NumY)
+
+#define _ZYPX (z*ZStep+_YP*YStep+x*XStep)
+#define _ZYMX (z*ZStep+_YM*YStep+x*XStep)
+
+#define _ZP ((z+1)      % NumZ)
+#define _ZM ((z+NumZ-1) % NumZ)
+
+#define _ZPYX (_ZP*ZStep+y*YStep+x*XStep)
+#define _ZMYX (_ZM*ZStep+y*YStep+x*XStep)
+
 #ifdef __PARALLEL__
 #define HX_XM (x==0 ? HXbf : HX[x-1])
 #else
