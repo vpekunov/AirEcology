@@ -1665,14 +1665,14 @@ void CalculatePRL
 
                          if (Flags & fld2RF)
                             {
-                             Rm = R+Kp**VAL(Bounds,D1,&Rt[_ZYMX]);
-                             Rp = R+Kp**VAL(Bounds,D2,&Rt[_ZYPX]);
+                             Rm = R+Kp**VAL(Bounds,_back,&Rt[_ZYMX]);
+                             Rp = R+Kp**VAL(Bounds,_forw,&Rt[_ZYPX]);
                              Rz = 2.0*(R+Kp*Rt[_ZYX]);
                             }
                          else
                            {
-                            Rp   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZYPX])*HYR[y].R1p+Rt[_ZYX]*HYR[y].R2p+*VAL(Bounds,D1,&Rt[_ZYMX])*HYR[y].R3p));
-                            Rm   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZYPX])*HYR[y].R1m+Rt[_ZYX]*HYR[y].R2m+*VAL(Bounds,D1,&Rt[_ZYMX])*HYR[y].R3m));
+                            Rp   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,_forw,&Rt[_ZYPX])*HYR[y].R1p+Rt[_ZYX]*HYR[y].R2p+*VAL(Bounds,_back,&Rt[_ZYMX])*HYR[y].R3p));
+                            Rm   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,_forw,&Rt[_ZYPX])*HYR[y].R1m+Rt[_ZYX]*HYR[y].R2m+*VAL(Bounds,_back,&Rt[_ZYMX])*HYR[y].R3m));
                             Rz   = Rm+Rp;
                            }
                          Z21   = aR2*(Rm*HYR[y].R3m+Rp*HYR[y].R3p);
@@ -1699,14 +1699,14 @@ void CalculatePRL
 
                          if (Flags & fld2RF)
                             {
-                             Rm = R+Kp**VAL(Bounds,D1,&Rt[_ZMYX]);
-                             Rp = R+Kp**VAL(Bounds,D2,&Rt[_ZPYX]);
+                             Rm = R+Kp**VAL(Bounds,_bottom,&Rt[_ZMYX]);
+                             Rp = R+Kp**VAL(Bounds,_top,&Rt[_ZPYX]);
                              Rz = 2.0*(R+Kp*Rt[_ZYX]);
                             }
                          else
                            {
-                            Rp   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZPYX])*HZR[z].R1p+Rt[_ZYX]*HZR[z].R2p+*VAL(Bounds,D1,&Rt[_ZMYX])*HZR[z].R3p));
-                            Rm   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,D2,&Rt[_ZPYX])*HZR[z].R1m+Rt[_ZYX]*HZR[z].R2m+*VAL(Bounds,D1,&Rt[_ZMYX])*HZR[z].R3m));
+                            Rp   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,_top,&Rt[_ZPYX])*HZR[z].R1p+Rt[_ZYX]*HZR[z].R2p+*VAL(Bounds,_bottom,&Rt[_ZMYX])*HZR[z].R3p));
+                            Rm   = R+0.5*Kp*(Rt[_ZYX]+(*VAL(Bounds,_top,&Rt[_ZPYX])*HZR[z].R1m+Rt[_ZYX]*HZR[z].R2m+*VAL(Bounds,_bottom,&Rt[_ZMYX])*HZR[z].R3m));
                             Rz   = Rm+Rp;
                            }
                          Z31   = aR3*(Rm*HZR[z].R3m+Rp*HZR[z].R3p);
@@ -1729,7 +1729,9 @@ void CalculatePRL
                              Z33 -= TAU*WZ2[_ZYX]*HZR[z].R2m;
                             }
 
-                         H1[_ZYX] = (H[_ZYX]+H[_ZYXP]*Z2+H[_ZYXM]*Z1+H[_ZYPX]*Z22+H[_ZYMX]*Z21+H[_ZPYX]*Z32+H[_ZMYX]*Z31+
+                         H1[_ZYX] = (H[_ZYX]+*VAL(Bounds,_right,&H[_ZYXP])*Z2+*VAL(Bounds,_left,&H[_ZYXM])*Z1+
+                                     *VAL(Bounds,_forw,&H[_ZYPX])*Z22+*VAL(Bounds,_back,  &H[_ZYMX])*Z21+
+                                     *VAL(Bounds,_top, &H[_ZPYX])*Z32+*VAL(Bounds,_bottom,&H[_ZMYX])*Z31+
                                    (TAU)*(K==NULL ? 0.0 : K[_ZYX])
                                   )/(Z3+Z23+Z33-(_S==NULL ? 0.0 : (TAU)*_S[_ZYX]));
                         }
