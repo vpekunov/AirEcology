@@ -78,6 +78,10 @@
 /* Новый контроль точности */
 /* -- Ноябрь 2015 - Май 2016 */
 /* Теперь сложные граничные узлы с несколькими гранями сохраняются дополнительно в файл *.bnd */
+/* -- Октябрь 2026 */
+/* В параллельном варианте перешли от неявной схемы с прогонкой к модифицированной схеме Головичева */
+/* Химическая кинетика теперь при превышении заданного максимального числа итераций считается просто до установления! */
+/* Старая схема Адамса-Рожкова заменена исправленной Адамса-Рожкова-Пекунова с контролем погрешности */
 
 /* For Microsoft Visual Studio */
 #define _CRT_SECURE_NO_WARNINGS
@@ -1643,7 +1647,7 @@ void CalculatePRL
                            }
                          Z1   = aR1*(Rm*HXR[x].R3m+Rp*HXR[x].R3p);
                          Z2   = aR1*(Rm*HXR[x].R1m+Rp*HXR[x].R1p);
-                         Z3   = 1+aR1*(Rz-Rm*HXR[x].R2m-Rp*HXR[x].R2p);
+                         Z3   = /*1+*/aR1*(Rz-Rm*HXR[x].R2m-Rp*HXR[x].R2p);
                          if (WX1[_ZYX]>0.0)
                             Z3 += TAU*WX1[_ZYX];
                          else
@@ -1677,7 +1681,7 @@ void CalculatePRL
                            }
                          Z21   = aR2*(Rm*HYR[y].R3m+Rp*HYR[y].R3p);
                          Z22   = aR2*(Rm*HYR[y].R1m+Rp*HYR[y].R1p);
-                         Z23   = 1+aR2*(Rz-Rm*HYR[y].R2m-Rp*HYR[y].R2p);
+                         Z23   = /*1+*/aR2*(Rz-Rm*HYR[y].R2m-Rp*HYR[y].R2p);
                          if (WY1[_ZYX]>0.0)
                             Z23 += TAU*WY1[_ZYX];
                          else
@@ -1711,7 +1715,7 @@ void CalculatePRL
                            }
                          Z31   = aR3*(Rm*HZR[z].R3m+Rp*HZR[z].R3p);
                          Z32   = aR3*(Rm*HZR[z].R1m+Rp*HZR[z].R1p);
-                         Z33   = 1+aR3*(Rz-Rm*HZR[z].R2m-Rp*HZR[z].R2p);
+                         Z33   = /*1+*/aR3*(Rz-Rm*HZR[z].R2m-Rp*HZR[z].R2p);
                          if (WZ1[_ZYX]>0.0)
                             Z33 += TAU*WZ1[_ZYX];
                          else
@@ -1729,11 +1733,22 @@ void CalculatePRL
                              Z33 -= TAU*WZ2[_ZYX]*HZR[z].R2m;
                             }
 
-                         H1[_ZYX] = (H[_ZYX]+*VAL(Bounds,_right,&H[_ZYXP])*Z2+*VAL(Bounds,_left,&H[_ZYXM])*Z1+
+                         double taus  = TAU/(1.0 + Z3 + Z23 + Z33 - (_S==NULL ? 0.0 : (TAU)*_S[_ZYX]));
+                         double alpha = isfinite(taus) ? 1.0 - TAU/taus : 1.0;
+
+                         double G = (H[_ZYX]+*VAL(Bounds,_right,&H[_ZYXP])*Z2+*VAL(Bounds,_left,&H[_ZYXM])*Z1+
                                      *VAL(Bounds,_forw,&H[_ZYPX])*Z22+*VAL(Bounds,_back,  &H[_ZYMX])*Z21+
                                      *VAL(Bounds,_top, &H[_ZPYX])*Z32+*VAL(Bounds,_bottom,&H[_ZMYX])*Z31+
                                    (TAU)*(K==NULL ? 0.0 : K[_ZYX])
-                                  )/(Z3+Z23+Z33-(_S==NULL ? 0.0 : (TAU)*_S[_ZYX]));
+                                  )/(isfinite(taus) ? (1.0+Z3+Z23+Z33-(_S==NULL ? 0.0 : (TAU)*_S[_ZYX])) : 1.0);
+
+                         H1[_ZYX] = H[_ZYX] + (
+                                     *VAL(Bounds,_right,&H[_ZYXP])*Z2+*VAL(Bounds,_left,&H[_ZYXM])*Z1+
+                                     *VAL(Bounds,_forw,&H[_ZYPX])*Z22+*VAL(Bounds,_back,  &H[_ZYMX])*Z21+
+                                     *VAL(Bounds,_top, &H[_ZPYX])*Z32+*VAL(Bounds,_bottom,&H[_ZMYX])*Z31+
+                                     ((alpha*H[_ZYX] + (1.0-alpha)*G)*(-(Z3+Z23+Z33-(_S==NULL ? 0.0 : (TAU)*_S[_ZYX]))))+
+                                     (TAU)*(K==NULL ? 0.0 : K[_ZYX])
+                         );
                         }
                     }
 
