@@ -18,9 +18,9 @@
 #define CHANGE_PARAMS_FILE "params.exe"
 #define DATA_PARAMS_FILE   "params.out"
 
-typedef enum {intT,fltT,chrT,usrT} cfgTypes;
+typedef enum {intT = 0,fltT,ffltT,chrT,usrT} cfgTypes;
 
-int cfgTypeSizes[4] = {sizeof(int),sizeof(double),sizeof(char),0};
+int cfgTypeSizes[5] = {sizeof(int),sizeof(double),sizeof(float),sizeof(char),0};
 
 typedef char * (*BeforeF)(char *);
 typedef int    (*HandleF)(char *);
@@ -241,11 +241,13 @@ int ReadSection(FILE * _IN, FILE * _OUT, FILE * _DSC, int ChangeParams, FILE * C
                            if (!_DSC) { // if _DSC==NULL then read values, call Handle, After
                               Variables[VarIndex].VarUse = 1;
                               switch (Variables[VarIndex].VarType) {
-                                case intT: ReadItems(Val,"%i",Variables[VarIndex].VarMaxN,Variables[VarIndex].VarLong,int *,Variables[VarIndex].VarMap)
+                                case intT: ReadItems(Val,"%i",Variables[VarIndex].VarMaxN,Variables[VarIndex].VarLong,int *,Variables[VarIndex].VarMap);
                                            break;
-                                case fltT: ReadItems(Val,"%lf",Variables[VarIndex].VarMaxN,Variables[VarIndex].VarLong,double *,Variables[VarIndex].VarMap)
+                                case fltT: ReadItems(Val,"%lf",Variables[VarIndex].VarMaxN,Variables[VarIndex].VarLong,double *,Variables[VarIndex].VarMap);
                                            break;
-                                case chrT: ReadItems(Val,"%s",Variables[VarIndex].VarMaxN,Variables[VarIndex].VarLong,char *,Variables[VarIndex].VarMap)
+								case ffltT:ReadItems(Val, "%f", Variables[VarIndex].VarMaxN, Variables[VarIndex].VarLong, float *, Variables[VarIndex].VarMap);
+									break;
+								case chrT: ReadItems(Val, "%s", Variables[VarIndex].VarMaxN, Variables[VarIndex].VarLong, char *, Variables[VarIndex].VarMap);
                                            break;
                                 case usrT: if (Variables[VarIndex].VarHandle)
                                               Count = Variables[VarIndex].VarHandle(Val);
